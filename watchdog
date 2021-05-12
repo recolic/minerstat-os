@@ -1,0 +1,118 @@
+#!/bin/bash
+
+echo "Watchdog agent starting.."
+
+check=""
+devname=""
+
+# kernel load modules
+sudo modprobe ch341
+
+# ANPIX USB WatchDog Card
+P1=$(lsusb | grep "5131:2007")
+if [ ! -z "$P1" ]; then
+  check="5131:2007"
+fi
+# QuinHeng
+P6=$(lsusb | grep "1a86:e2e3")
+if [ ! -z "$P6" ]; then
+  check="1a86:e2e3"
+fi
+# domybest USB Watchdog Card
+# QinHeng Electronics HL-340 USB-Serial adapter
+P2=$(lsusb | grep "1a86:7523")
+if [ ! -z "$P2" ]; then
+  check="1a86:7523"
+fi
+# ALLOYSEED USB Watchdog
+P3=$(lsusb | grep "0471:2379")
+if [ ! -z "$P3" ]; then
+  check="0471:2379"
+fi
+# OCTOMINER || MINERDUDE
+P4=$(lsusb | grep "16c0:05dc")
+if [ ! -z "$P4" ]; then
+  check="16c0:05dc"
+fi
+# Watchdog watchdog.in.ua
+P5=$(lsusb | grep "16c0:03e8")
+if [ ! -z "$P5" ]; then
+  check="16c0:03e8"
+fi
+
+
+# Try to find devpath
+if [ ! -z "$check" ]; then
+  sysbuspath=$(find /sys/bus/usb/devices/usb*/ -name dev | grep $check)
+  pathedit=${sysbuspath%/dev}
+  devname=$(udevadm info -q name -p $pathedit 2>/dev/null)
+fi
+
+if [ ! -z "$P1" ] || [ ! -z "$P2" ] || [ ! -z "$P3" ] || [ ! -z "$P6" ]; then
+  echo "USB Watchdog detected.. Sending signal"
+  while true
+  do
+    if [ -z "$devname" ]; then
+      sudo su -c "printf '\x1E\x00' >/dev/ttyUSB*"
+      sudo su -c "printf '\x1E\x00' >/dev/hidraw*"
+    else
+      sudo su -c "printf '\x1E\x00' >/dev/$devname"
+    fi
+    sleep 1
+  done
+fi
+
+# Open-dev wdt
+OWDT=$(ls /dev/ttyACM* 2> /dev/null)
+if [ ! -z "$OWDT" ]; then
+  echo "Open-dev USB Watchdog detected.. Sending signal"
+  while true
+  do
+    if [ -z "$devname" ]; then
+      sudo su -c "echo -n '~U' >/dev/ttyACM*"
+    else
+      sudo su -c "echo -n '~U' >/dev/$devname"
+    fi
+    sleep 1
+  done
+fi
+
+# octominer
+if [ ! -z "$P4" ]; then
+  echo "Octominer or Minerdude machine detected.. Sending signal"
+  timeout 5 sudo /home/minerstat/minerstat-os/bin/fan_controller_cli -w 180 -v 600
+  while true
+  do
+    timeout 1 sudo /home/minerstat/minerstat-os/bin/fan_controller_cli -s
+    sleep 5
+  done
+fi
+
+# watchdoginua
+if [ ! -z "$P5" ]; then
+  echo "Watchdoginua found.. Sending signal"
+  # 4 min
+  TIMEOUT=240
+
+  echo "testing for libusb"
+  sudo /home/minerstat/minerstat-os/bin/watchdoginua $TIMEOUT single > /dev/shm/wdinua.txt
+  VALIDATE=$(sudo cat /dev/shm/wdinua.txt)
+  if [[ $VALIDATE == *"libusb"* ]]; then
+    echo "libusb not found.. installing"
+    if [[ ! -f "/tmp/libusb-0.1-4_0.1.12-31_amd64.deb" ]]; then
+      wget https://static-ssl.minerstat.farm/miners/libusb-0.1-4_0.1.12-31_amd64.deb -P /tmp
+    fi
+    sudo dpkg --force-all -i /tmp/libusb-0.1-4_0.1.12-31_amd64.deb
+  else
+    echo "libusb ok, running.."
+  fi
+
+  while true
+  do
+    timeout 2 sudo /home/minerstat/minerstat-os/bin/watchdoginua $TIMEOUT single > /dev/null 2>&1
+    sleep 5
+  done
+fi
+
+echo "No watchdog found / script closed.."
+exit 1

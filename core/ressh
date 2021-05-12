@@ -1,0 +1,104 @@
+#!/bin/bash
+
+echo "Validating SSH Keys.."
+
+keyc="MIIBuwIBAAKBgQDTanoMk4GUJ4ySRfYnBkH9NDMSjBDd72PvdVuZ5OlBth19OSaO"
+keyp="AAAAB3NzaC1yc2EAAAADAQABAAABAQDh9gWYEOua"
+
+file="/etc/ssh/ssh_host_rsa_key.pub"
+check=$(cat $file)
+
+if [[ "$check" == *"$keyp"* ]]; then
+  echo "Generating new SSH Keys..."
+  sudo /bin/rm -v /etc/ssh/ssh_host_*
+  sudo dpkg-reconfigure openssh-server
+  sudo systemctl restart sshd
+  sudo systemctl status sshd
+else
+  echo "SSH Keys Already Regenerated.."
+fi
+
+file="/etc/ssh/ssh_host_dsa_key"
+check=$(cat $file)
+
+if [[ "$check" == *"$keyc"* ]]; then
+  echo "Generating new SSH Keys..."
+  sudo rm /etc/ssh/ssh_host_dsa_key
+  sudo rm /etc/ssh/ssh_host_rsa_key
+  sudo cat /dev/zero | ssh-keygen -t ecdsa -b 384 -q -N "" -f /etc/ssh/ssh_host_dsa_key
+  sudo cat /dev/zero | ssh-keygen -t rsa -b 2048 -q -N "" -f /etc/ssh/ssh_host_rsa_key
+  sudo systemctl restart sshd
+  sudo systemctl status sshd
+else
+  echo "SSH Keys Already Regenerated.."
+fi
+
+
+file="/etc/ssh/ssh_host_rsa_key.pub"
+check=$(cat $file)
+
+if [[ "$check" == *"AAAAB3NzaC1yc2EAAAADAQABAAABAQDSbJCOiMhPH"* ]]; then
+  echo "Generating new SSH Keys..."
+  sudo rm /etc/ssh/ssh_host_dsa_key
+  sudo rm /etc/ssh/ssh_host_rsa_key
+  sudo cat /dev/zero | ssh-keygen -t ecdsa -b 384 -q -N "" -f /etc/ssh/ssh_host_dsa_key
+  sudo cat /dev/zero | ssh-keygen -t rsa -b 2048 -q -N "" -f /etc/ssh/ssh_host_rsa_key
+  sudo systemctl restart sshd
+  sudo systemctl status sshd
+else
+  echo "SSH Keys Already Regenerated.."
+fi
+
+# All port is disabled from public already, for new packages generating new host keys for additional layer of security
+# On iptables already all port disabled 4200,22,7777,3333,42000,1880,4028,2222,5008,9090,9091,5777,20000 only local network access enabled
+if [ "$version" = "1.4.9" ] || [ "$version" = "1.5.3" ] || [ "$version" = "1.5.4" ] || [ "$version" = "1.5.5" ] || [ "$version" = "1.6.0" ] || [ "$version" = "1.2.6" ]; then
+  FILE=/media/storage/ssh.txt
+  if [ -f "$FILE" ]; then
+    echo "SSH Keys Already Regenerated.."
+  else
+    echo "Generating new SSH Keys..."
+    sudo rm /etc/ssh/ssh_host_dsa_key
+    sudo rm /etc/ssh/ssh_host_rsa_key
+    sudo cat /dev/zero | ssh-keygen -t ecdsa -b 384 -q -N "" -f /etc/ssh/ssh_host_dsa_key
+    sudo cat /dev/zero | ssh-keygen -t rsa -b 2048 -q -N "" -f /etc/ssh/ssh_host_rsa_key
+    sudo systemctl restart sshd
+    sudo systemctl status sshd
+    sudo su -c "echo '1' > /media/storage/ssh.txt"
+  fi
+fi
+
+
+if ping -q -c 1 -W 1 1.1.1.1 >/dev/null; then
+  # DETECT LOCAL NETWORK
+  ip=`ifconfig | grep "inet" | grep -v "inet6" | grep -vE "127.0.0.1|169.254|172.17." | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | head -n 1 | grep -o -E '[.0-9]+'`
+  subnet=$(echo $ip | cut -f1,2 -d'.')
+  netw="$subnet.0.0"
+
+  echo "IPv4 is up, setting iptables"
+  echo "Network: $ip | $netw/16"
+
+  # Clear RULES
+  sudo iptables -F
+  sudo iptables -X
+  sudo iptables -t nat -F
+  sudo iptables -t nat -X
+  sudo iptables -t mangle -F
+  sudo iptables -t mangle -X
+  sudo iptables -P INPUT ACCEPT
+  sudo iptables -P FORWARD ACCEPT
+  sudo iptables -P OUTPUT ACCEPT
+
+  # SET NEW RULES FOR 22 PORT AND ALL MINERS
+  sudo iptables -A INPUT -p tcp --match multiport --dports 4200,22,7777,3333,42000,1880,4028,2222,5008,9090,9091,5777,20000,3389 -s $netw/16 -j ACCEPT
+  sudo iptables -A INPUT -p tcp --match multiport --dports 4200,22,7777,3333,42000,1880,4028,2222,5008,9090,9091,5777,20000,3389 -s 68.183.74.40 -j ACCEPT
+  sudo iptables -A INPUT -p tcp --match multiport --dports 4200,22,7777,3333,42000,1880,4028,2222,5008,9090,9091,5777,20000,3389 -s 10.0.0.0/8 -j ACCEPT
+  sudo iptables -A INPUT -p tcp --match multiport --dports 4200,22,7777,3333,42000,1880,4028,2222,5008,9090,9091,5777,20000,3389 -s 192.168.0.0/16 -j ACCEPT
+  sudo iptables -A INPUT -p tcp --match multiport --dports 4200,22,7777,3333,42000,1880,4028,2222,5008,9090,9091,5777,20000,3389 -s 172.16.0.0/12 -j ACCEPT
+  sudo iptables -A INPUT -p tcp --match multiport --dports 4200,22,7777,3333,42000,1880,4028,2222,5008,9090,9091,5777,20000,3389 -s 127.0.0.0/8 -j ACCEPT
+  sudo iptables -A INPUT -p tcp --match multiport --dports 4200,22,7777,3333,42000,1880,4028,2222,5008,9090,9091,5777,20000 -j DROP
+
+  # Print out new IPTABLE
+  sudo iptables -S
+else
+  echo "IPv4 is down, setting up next time"
+fi

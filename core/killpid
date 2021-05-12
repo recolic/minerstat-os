@@ -1,0 +1,13 @@
+#!/bin/bash
+exec 2>/dev/null
+
+miner=$1
+query=$(pidof $miner)
+
+echo "$query" | while IFS= read -r line ; do
+  IFS=' ' read -ra NAMES <<< "$line"
+  sudo kill -9 ${NAMES[0]}
+  sudo kill -9 ${NAMES[1]}
+  sudo kill -9 ${NAMES[2]}
+  sudo kill -9 ${NAMES[3]}
+done

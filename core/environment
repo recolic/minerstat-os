@@ -1,0 +1,2 @@
+PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/opt/amdgpu-pro/bin"
+CUDA_DEVICE_ORDER=PCI_BUS_ID

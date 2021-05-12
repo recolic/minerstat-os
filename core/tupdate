@@ -1,0 +1,21 @@
+#!/bin/bash
+
+if [ -f "/home/minerstat/upd.pid" ]; then
+  STATUS_ORIGIN="OFF"
+  STATUS_NEW="ON"
+  sudo rm /home/minerstat/upd.pid
+else
+  STATUS_ORIGIN="ON"
+  STATUS_NEW="OFF"
+  sudo echo "disable" > /home/minerstat/upd.pid
+fi
+
+# ECHO
+echo
+echo
+echo "Previous Auto Update Control: $STATUS_ORIGIN"
+echo "Current  Auto Update Control: $STATUS_NEW"
+echo
+echo
+
+sync &

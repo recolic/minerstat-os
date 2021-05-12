@@ -1,0 +1,71 @@
+# /etc/profile: system-wide .profile file for the Bourne shell (sh(1))
+# and Bourne compatible shells (bash(1), ksh(1), ash(1), ...).
+
+if [ "$PS1" ]; then
+  if [ "$BASH" ] && [ "$BASH" != "/bin/sh" ]; then
+    # The file bash.bashrc already sets the default PS1.
+    # PS1='\h:\w\$ '
+    if [ -f /etc/bash.bashrc ]; then
+      . /etc/bash.bashrc
+    fi
+  else
+    if [ "`id -u`" -eq 0 ]; then
+      PS1='# '
+    else
+      PS1='$ '
+    fi
+  fi
+fi
+
+source /home/minerstat/minerstat-os/core/.bashrc
+cd /home/minerstat/minerstat-os/
+sudo cp -rf "/media/storage/config.js" "/home/minerstat/minerstat-os/"
+
+PROTECT=0
+HEADCAP=5
+HEADCAPA=15
+HEADCAPB=30
+
+SNUM=$(sudo su minerstat -c "screen -list | grep -c fff")
+if [ "$SNUM" -lt "1" ]; then
+
+  if ! screen -list | grep -q "fff"; then
+    sudo su minerstat -c "screen -A -m -d -S fff sleep 365d"
+  fi
+
+  if [ "$(whoami)" = "minerstat" ]; then
+    until screen -x boot_process; do
+      PROTECT=$[$PROTECT +1]
+      echo "Waiting boot process to start"
+      if [ $PROTECT = $HEADCAP ]; then
+        /bin/sh /home/minerstat/minerstat-os/bin/onboot.sh
+      fi
+      if [ $PROTECT = $HEADCAPA ]; then
+        /bin/sh /home/minerstat/minerstat-os/bin/onboot.sh
+      fi
+      if [ $PROTECT = $HEADCAPB ]; then
+        echo "Attempt to recover OS from from the network."
+        cd /tmp
+        sudo su -c "cd /home/minerstat; sudo rm /home/minerstat/recovery.sh; wget -o /dev/null https://labs.minerstat.farm/repo/minerstat-os/-/raw/master/core/recovery.sh; sudo chmod 777 /home/minerstat/recovery.sh;"; sudo bash /home/minerstat/recovery.sh
+        sudo su minerstat -c "/bin/sh /home/minerstat/minerstat-os/bin/onboot.sh"
+      fi
+      sleep 1
+    done
+  else
+    echo "You are probably logged in as root."
+    echo "Enter: sudo su minerstat"
+    echo "After usual commands like mstart, agent will work."
+  fi
+
+fi
+
+source /home/minerstat/minerstat-os/core/.bashrc
+
+if [ -d /etc/profile.d ]; then
+  for i in /etc/profile.d/*.sh; do
+    if [ -r $i ]; then
+      . $i
+    fi
+  done
+  unset i
+fi

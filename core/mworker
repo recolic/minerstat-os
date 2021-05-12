@@ -1,0 +1,52 @@
+#!/bin/bash
+
+if [ -z "$1" ] && [ -z "$2" ]; then
+  echo "Usage: mworker ACCESSKEY WORKERNAME"
+  exit 1
+fi
+
+if [ -z "$1" ]; then
+  echo "ACCESSKEY can't be empty"
+  exit 1
+fi
+
+if [ -z "$2" ]; then
+  echo "WORKER NAME can't be empty"
+  exit 1
+fi
+
+echo "New AccessKey: $1"
+echo "New Worker Name: $2"
+
+echo
+sudo su -c "echo 'stop' > /tmp/stop.pid"
+sudo node /home/minerstat/minerstat-os/stop.js
+sudo su minerstat -c "screen -X -S minerstat-console quit";
+sudo su -c "sudo screen -X -S minew quit"
+
+sudo echo global.accesskey = '"'$1'";' > /media/storage/config.js
+sudo echo global.worker = '"'$2'";' >> /media/storage/config.js
+sudo cp /media/storage/config.js /home/minerstat/minerstat-os/
+
+
+echo "Validate Config..."
+echo
+
+sudo cat /media/storage/config.js
+
+echo "Reinitalize, hostname etc.."
+echo
+
+sudo bash /home/minerstat/minerstat-os/bin/jobs.sh
+
+echo "Applying ClockTune Profile"
+echo
+
+sudo bash /home/minerstat/minerstat-os/bin/overclock.sh
+
+echo
+echo
+echo "You are done !"
+echo "Start mining with: mstart"
+
+sync

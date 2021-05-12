@@ -1,0 +1,163 @@
+#!/bin/bash
+# Contact: <info@minerstat.com>
+# Mail: Sepapaja tn 6, Lasnamäe district, Tallinn city, Harju county, 15551, Estonia
+# © minerstat OÜ in 2019
+
+# Define
+SWAP_SIZE=8192 # first 8GB
+# Drive
+DRIVE_NUMBER=$(df -h | grep "20M" | grep "/dev/" | cut -f1 -d"2" | sed 's/dev//g' | sed 's/\///g' | sed 's/[0-9]*//g' | head -n1 | xargs)
+DRIVE_PARTITION=$DRIVE_NUMBER"1"
+if [ "$DRIVE_NUMBER" = "nvmenp" ]; then
+    echo "Changeing header, NVM drive detected.."
+    DRIVE_NUMBER="$(df -h | grep "20M" | grep "/dev/" | cut -f1 -d"2" | sed 's/dev//g' | sed 's/\///g' | xargs | sed 's/.$//' | sed 's/\s.*$//' | xargs | sed 's/\p//g')"
+    DRIVE_PARTITION=$DRIVE_NUMBER"p1"
+    DRIVE_EFI=$DRIVE_NUMBER"p3"
+fi
+CURRENT_PARTITION_SIZE_IN_BYTE=$(sudo cat /proc/partitions | grep $DRIVE_NUMBER"1" | head -n1 | awk '{print $3}')
+CURRENT_PARTITION_SIZE_IN_MB=$(python -c "print $CURRENT_PARTITION_SIZE_IN_BYTE / 1024")
+CURRENT_FREE_SPACE_IN_MB="$(df -hm | grep $DRIVE_PARTITION | awk '{print $4}')"
+# Memory
+MEM_SIZE=$(free -m | grep "Mem" | awk '{print $2}' | xargs)
+SWAP_TOTAL=$(free -m | grep "Swap" | awk '{print $2}' | xargs)
+MEM_TOTAL=$((MEM_SIZE+SWAP_TOTAL))
+
+Help() {
+  echo
+  echo "-------- SWAP HELP -----------"
+  echo "mswap create %SIZE% %MAXSIZE%"
+  echo "mswap remove"
+  echo
+  echo "Default: mswap create 8192"
+  echo "------------------------------"
+  echo
+}
+
+Create() {
+  echo
+  if [ ! -z "$2" ]; then
+    SWAP_SIZE=$2
+  fi
+  # Is active ?
+  if [ $SWAP_TOTAL -gt 0 ]; then
+    # If yes, ask for removal, exit
+    echo "Swap is already activated, Nothing to do!"
+    echo "You need to remove first, Enter:"
+    echo "mswap remove"
+  else
+    # Check for recommendation
+    if [ $MEM_TOTAL -gt 16384 ]; then
+      echo "! You have already enough memory (>16G), no swap files needed."
+      echo "! You still can create swap by increase %MAXSIZE%"
+      echo "= Example: mswap create 8192 18432"
+      if [ -z "$3" ]; then
+        exit 2
+      fi
+    fi
+    # Check for free Space
+    if [ $CURRENT_FREE_SPACE_IN_MB -lt $SWAP_SIZE ];then
+      echo "!! You don't have enough free space to create $SWAP_SIZE Mb of Swap Space"
+      exit 3
+    fi
+    # Create swap
+    echo "Creating Swap File ... /mswap | $SWAP_SIZE Mb"
+    sudo dd if=/dev/zero of=/mswap bs=1M count=$SWAP_SIZE status=progress
+
+    if [ $? -ne 0 ]; then
+      echo "Error happend during swap creation"
+      sudo rm /mswap
+      exit 4
+    fi
+
+    echo "Swap file created !"
+    echo
+    echo "Turning on swap space"
+    sudo chmod 600 /mswap
+    sudo mkswap /mswap
+    sudo swapon /mswap
+    echo
+
+    if [ $? -ne 0 ]; then
+      echo "Error happend during swap activation"
+      sudo rm /mswap
+      exit 4
+    fi
+
+    sudo swapon --show
+
+    MEM_SIZE=$(free -m | grep "Mem" | awk '{print $2}' | xargs)
+    SWAP_TOTAL=$(free -m | grep "Swap" | awk '{print $2}' | xargs)
+    MEM_TOTAL=$((MEM_SIZE+SWAP_TOTAL))
+
+    echo
+    echo "- MEMORY"
+    echo "Memory: $MEM_SIZE Mb  | Swap: $SWAP_TOTAL Mb"
+    echo "Total Memory: $MEM_TOTAL Mb"
+    echo
+
+    if [ $SWAP_TOTAL -gt 0 ]; then
+      echo "Swap activated sucessfully !"
+    else
+      echo "Swap space is still 0Mb, something went wrong !"
+    fi
+
+    # Add entry to FSTAB
+    sudo su -c "echo '/mswap swap swap defaults 0 0' >> /etc/fstab"
+  fi
+  echo
+}
+
+Remove() {
+  echo
+  # Is active?
+  if [ $SWAP_TOTAL -eq 0 ]; then
+    echo "No swap file found, Nothing to do!"
+    if [[ -e "/mswap" ]]; then
+      sudo rm /mswap
+    fi
+    exit 9
+  fi
+  # Remove Swap File
+  sudo swapoff /mswap
+  # Remove FSTAB
+  sudo sed -i '/mswap/d' /etc/fstab
+  sudo rm /mswap
+  echo "Swap removed sucessfully !"
+  echo
+}
+
+Init() {
+
+  echo "-------- SWAP HELP -----------"
+  echo "- DRIVE"
+  echo "Drive: /dev/$DRIVE_PARTITION"
+  echo "Current max size: $CURRENT_PARTITION_SIZE_IN_MB Mb"
+  echo "Free Space on the Disk: $CURRENT_FREE_SPACE_IN_MB MB"
+  echo "- MEMORY"
+  echo "Memory: $MEM_SIZE Mb  | Swap: $SWAP_TOTAL Mb"
+  echo "Total Memory: $MEM_TOTAL Mb"
+  echo
+
+  if [ "$1" = "create" ]; then
+    echo "-------- CREATE SWAP -----------"
+    Create $1 $2 $3
+  elif [ "$1" = "remove" ]; then
+    echo "-------- REMOVE SWAP -----------"
+    Remove
+  else
+    echo "-------- UNKNOWN COMMAND -----------"
+    echo "ENTER => swap help"
+    exit 1
+  fi
+
+}
+
+if [ -z "$1" ]; then
+  Help
+else
+  if [ "$1" = "help" ]; then
+    Help
+  else
+    Init $1 $2 $3
+  fi
+fi

@@ -1,0 +1,71 @@
+#!/bin/bash
+
+echo "Local IP : $1"
+echo "Netmask  : $2"
+echo "Gateway  : $3"
+
+if [ -z "$1" ] && [ -z "$2" ] && [ -z "$3" ]; then
+  echo
+  echo "Usage: static LOCALIP NETMASK GATEWAY"
+  echo "e.g: static 192.168.0.100 255.255.255.0 192.168.0.1"
+  echo
+  exit 0
+else
+  echo; read -rsn1 -p "Please, confirm. Press: [ A ] to accept, [ C ] to reject . . ." keypress; echo
+
+  if [ "$keypress" = "a" ] || [ "$keypress" = "A" ]; then
+    echo
+    echo "Accepted"
+
+    # remove wifi
+    echo "Info: Wifi deactivated"
+    sudo sed -i '/WIFISSID/d' /media/storage/network.txt
+    sudo sed -i '/WIFIPASS/d' /media/storage/network.txt
+
+    sudo cp -rf /etc/network/interfaces /etc/network/interfaces.bak
+    # MODIFY NETWORK.TXT
+    sudo sed -i '/IPADDRESS/d' /media/storage/network.txt
+    sudo sed -i '/NETMASK/d' /media/storage/network.txt
+    sudo sed -i '/GATEWAY/d' /media/storage/network.txt
+    sudo sed -i '/DHCP/d' /media/storage/network.txt
+    sudo echo "" >> /media/storage/network.txt
+    sudo echo 'IPADDRESS="'$1'"' >> /media/storage/network.txt
+    sudo echo 'NETMASK="'$2'"' >> /media/storage/network.txt
+    sudo echo 'GATEWAY="'$3'"' >> /media/storage/network.txt
+    sudo echo 'DHCP="NO"' >> /media/storage/network.txt
+    # RUN STATIC SCRIPT
+    sudo /home/minerstat/minerstat-os/bin/static.sh
+    # Extension
+    sudo ifconfig eth0 $1 netmask $2
+    sudo route add default gw $3 eth0
+    # CHECK IPV4
+    if ping -q -c 1 -W 1 1.1.1.1 >/dev/null; then
+      echo
+      echo "Ipv4 is up"
+      echo
+    else
+      echo
+      echo "IPv4 is down"
+      echo
+    fi
+    # CHECK DNS
+    sleep 3
+
+    TEST="$(ping api.minerstat.com. -w 1 | grep '1 packets transmitted')"
+    if echo "$TEST" | grep "0%" ;then
+      echo ""
+      echo "Success! You have active internet connection."
+    else
+      echo ""
+      echo "Oh! Something went wrong, you are not connected to the internet."
+    fi
+    echo
+  else
+    echo
+    echo "Cancelled"
+    echo
+  fi
+
+fi
+
+exit 9

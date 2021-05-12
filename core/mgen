@@ -1,0 +1,45 @@
+#!/bin/bash
+
+STATUS=$(cat /media/storage/settings.txt | grep "PCIE_GEN=" | sed 's/[^=]*\(=.*\)/\1/' | tr --delete = | xargs)
+
+if [ -z "$STATUS" ]; then
+  STATUS_ORIGIN="OFF"
+  STATUS_NEW="ON"
+  echo "TURNING OFF NVIDIA LEDS..."
+  echo "" >> /media/storage/settings.txt
+  echo "# PCIE GEN2 FORCE: ON/OFF" >> /media/storage/settings.txt
+  echo "" >> /media/storage/settings.txt
+  echo "PCIE_GEN=ON" >> /media/storage/settings.txt
+  echo
+  echo "PCI GEN2 Forcing enabled, You can turn off by running force-gen2 command again."
+  echo "It will be activated upon next boot or enter: mclock."
+  echo "Notice: It currently works for AMD GPUs only."
+  echo
+fi
+
+if [ "$STATUS" = "OFF" ]; then
+  STATUS_ORIGIN="OFF"
+  STATUS_NEW="ON"
+  sudo sed -i s/"PCIE_GEN=OFF"/"PCIE_GEN=ON"/ /media/storage/settings.txt
+  echo
+  echo "PCI GEN2 Forcing enabled, You can turn off by running force-gen2 command again."
+  echo "It will be activated upon next boot or enter: mclock."
+  echo "Notice: It currently works for AMD GPUs only."
+  echo
+fi
+
+if [ "$STATUS" = "ON" ]; then
+  STATUS_ORIGIN="ON"
+  STATUS_NEW="OFF"
+  sudo sed -i s/"PCIE_GEN=ON"/"PCIE_GEN=OFF"/ /media/storage/settings.txt
+  echo
+  echo "PCI GEN2 Forcing disabled, You can turn it back by running force-gen2 command again."
+  echo "It will be disabled upon next boot."
+  echo
+fi
+
+# ECHO
+echo
+echo "Previous PCIE Status: $STATUS_ORIGIN"
+echo "Current  PCIE Status: $STATUS_NEW"
+echo

@@ -1,0 +1,29 @@
+#!/bin/bash
+
+if [ -f "/home/minerstat/fanforce.pid" ]; then
+  STATUS_ORIGIN="ON"
+  STATUS_NEW="OFF"
+  sudo rm /home/minerstat/fanforce.pid
+  sudo bash /home/minerstat/minerstat-os/bin/setfans.sh
+else
+  STATUS_ORIGIN="OFF"
+  STATUS_NEW="ON"
+  sudo echo "enable" > /home/minerstat/fanforce.pid
+fi
+
+# Restart curve
+sudo killall curve &> /dev/null
+sleep 0.1
+sudo kill -9 $(sudo pidof curve) &> /dev/null
+sleep 0.2
+sudo screen -A -m -d -S curve /home/minerstat/minerstat-os/core/curve
+
+# ECHO
+echo
+echo
+echo "Previous Fan Force Control: $STATUS_ORIGIN"
+echo "Current  Fan Force Control: $STATUS_NEW"
+echo
+echo
+
+sync &

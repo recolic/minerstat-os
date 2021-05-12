@@ -1,0 +1,425 @@
+#!/bin/bash
+
+# ==================================
+# = NVIDIA
+# ==================================
+
+if [[ $1 == "nvidia" ]]; then
+  TEST_NVIDIA=$(nvidia-smi -L)
+  TEST_AMD=""
+
+  NVT=$(nvidia-smi --help-query-gpu | grep clocks_throttle_reasons.sw_thermal_slowdown)
+
+  if [[ $TEST_NVIDIA == *"GPU 0"* ]] && [[ $TEST_NVIDIA != *"Error"* ]]; then
+    NVIDIA_NUM=$(nvidia-smi --query-gpu=count --format=csv,noheader | tail -n1)
+    NVIDIA_INUM=$((NVIDIA_NUM-1))
+    #NVIDIA_BRAND=$(lspci -vnn | grep VGA -A 12 | grep Subsystem | grep -vE "HD Graphics|USB" > /dev/shm/nvidia_list.txt)
+    lspci -vnn | grep NVIDIA -A 1 | egrep "VGA|3D" -A 1 | grep -vE "HD Graphics|USB|Processor" | grep Subsystem > /dev/shm/nvidia_list.txt
+    NVIDIA_BRAND=$(cat /dev/shm/nvidia_list.txt)
+    if [ -z "$NVIDIA_BRAND" ]; then
+      lspci -vnn | grep GeForce -A 1 | grep -vE "HD Graphics|USB|Processor" | grep Subsystem > /dev/shm/nvidia_list.txt
+    fi
+    NVIDIA_BRAND=$(cat /dev/shm/nvidia_list.txt)
+    if [ -z "$NVIDIA_BRAND" ]; then
+      lspci -vnn | grep egrep "VGA|3D" -A 1 | grep -vE "HD Graphics|USB|Processor" | grep Subsystem > /dev/shm/nvidia_list.txt
+    fi
+    NVIDIA_BRAND=$(cat /dev/shm/nvidia_list.txt)
+    x="0"
+    z="1"
+    JSON_EOF='{'
+    until [ $NVIDIA_NUM == "$x" ]; do
+      if [[ -z "$NVT" ]]; then
+        QUERY=$(nvidia-smi -i $x --query-gpu=name,temperature.gpu,fan.speed,power.draw,clocks.current.sm,clocks.current.memory,utilization.gpu,pci.bus_id,clocks.max.sm,clocks.max.memory,power.min_limit,power.max_limit,power.default_limit,memory.total,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.hw_power_brake_slowdown --format=csv,noheader | tail -n1)
+        if [[ ! -z "$QUERY" ]]; then
+          QUERY="$QUERY, Not Active"
+        fi
+      else
+        QUERY=$(nvidia-smi -i $x --query-gpu=name,temperature.gpu,fan.speed,power.draw,clocks.current.sm,clocks.current.memory,utilization.gpu,pci.bus_id,clocks.max.sm,clocks.max.memory,power.min_limit,power.max_limit,power.default_limit,memory.total,clocks_throttle_reasons.hw_slowdown,clocks_throttle_reasons.hw_thermal_slowdown,clocks_throttle_reasons.hw_power_brake_slowdown,clocks_throttle_reasons.sw_thermal_slowdown --format=csv,noheader | tail -n1)
+      fi
+      JSON_EOF=$JSON_EOF'"'$x'":'
+
+      if [[ $NVIDIA_INUM == "$x" ]]; then
+        COMMA=""
+      else
+        COMMA=","
+      fi
+
+      BRAND=""
+      TEST_BRAND=$(cat /dev/shm/nvidia_list.txt | sed -n $z"p")
+      if [[ $TEST_BRAND == *"Gigabyte"* ]]; then
+        BRAND="Gigabyte "
+      elif [[ $TEST_BRAND == *"ASUS"* ]]; then
+        BRAND="ASUS "
+      elif [[ $TEST_BRAND == *"MSI"* ]]; then
+        BRAND="MSI "
+      elif [[ $TEST_BRAND == *"eVga"* ]]; then
+        BRAND="eVga "
+      elif [[ $TEST_BRAND == *"ZOTAC"* ]]; then
+        BRAND="ZOTAC "
+      elif [[ $TEST_BRAND == *"AMD"* ]]; then
+        BRAND="AMD "
+      elif [[ $TEST_BRAND == *"CardExpert"* ]]; then
+        BRAND="Gainward "
+      elif [[ $TEST_BRAND == *"Club 3D"* ]]; then
+        BRAND="Club 3D "
+      elif [[ $TEST_BRAND == *"HIS"* ]]; then
+        BRAND="HIS "
+      elif [[ $TEST_BRAND == *"Jetway"* ]]; then
+        BRAND="Jetway "
+      elif [[ $TEST_BRAND == *"XFX"* ]]; then
+        BRAND="XFX "
+      elif [[ $TEST_BRAND == *"PowerColor"* ]]; then
+        BRAND="PowerColor "
+      elif [[ $TEST_BRAND == *"VisionTek"* ]]; then
+        BRAND="VisionTek "
+      elif [[ $TEST_BRAND == *"INNO"* ]]; then
+        BRAND="INNO3D "
+      elif [[ $TEST_BRAND == *"PALIT"* ]]; then
+        BRAND="PALIT "
+      elif [[ $TEST_BRAND == *"COLORFUL"* ]]; then
+        BRAND="COLORFUL "
+      elif [[ $TEST_BRAND == *"GAINWARD"* ]]; then
+        BRAND="GAINWARD "
+      elif [[ $TEST_BRAND == *"PNY"* ]]; then
+        BRAND="PNY "
+      fi
+
+      JSON_EOF=$JSON_EOF'"'$BRAND$QUERY'"'$COMMA''
+      x=$((x+1))
+      z=$((z+1))
+    done
+    JSON_EOF=$JSON_EOF'}'
+    echo $JSON_EOF
+  else
+    echo "$TEST_NVIDIA"
+  fi
+fi
+
+# ==================================
+# = AMD
+# ==================================
+
+if [[ $1 == "amd" ]]; then
+
+  /home/minerstat/minerstat-os/bin/amdinfo
+
+fi
+
+# ==================================
+# = AMD with Voltages
+# ==================================
+
+if [[ $1 == "amd2" ]]; then
+
+  TEST=$(cat /sys/class/drm/card0/device/pp_dpm_sclk)
+  if [ -z "$TEST" ]; then
+    START="1"
+  else
+    START="0"
+  fi
+
+  AMDINFO_ORIGINAL=$(sudo /home/minerstat/minerstat-os/bin/amdinfo)
+  JQ_PATH="/home/minerstat/minerstat-os/bin/jq"
+  AMD_NEW='{'
+  for i in {0..15}
+  do
+    I=$((i + $START))
+    STRING=$(echo $AMDINFO_ORIGINAL | $JQ_PATH -r .[\"$i\"])
+    if [ "$STRING" != "null" ]; then
+      AMD_NEW=$AMD_NEW'"'$i'":'
+      GPUID=$I
+      currentCoreState=$(sudo su -c "cat /sys/class/drm/card$GPUID/device/pp_dpm_sclk | grep '*' | cut -f1 -d':' | sed -r 's/.*([0-9]+).*/\1/' | sed 's/[^0-9]*//g'")
+      currentMemState=$(sudo su -c "cat /sys/class/drm/card$GPUID/device/pp_dpm_mclk | grep '*' | cut -f1 -d':' | sed -r 's/.*([0-9]+).*/\1/' | sed 's/[^0-9]*//g'")
+      if [ "$currentCoreState" = "0" ]; then
+        currentCoreState="3"
+      fi
+      if [ "$currentMemState" = "0" ]; then
+        currentMemState="1"
+      fi
+      if [ -z "$currentCoreState" ]; then
+        currentCoreState="1"
+      fi
+      if [ -z "$currentMemState" ]; then
+        currentMemState="2"
+      fi
+      #echo "Core State: $currentCoreState, Mem State: $currentMemState, "
+
+      #currentVDDC=$(sudo su -c "cat /sys/class/drm/card$GPUID/device/hwmon/hwmon*/in0_input")
+
+      #if [ -z "$currentVDDC" ]; then
+      currentVDDC=$(sudo su -c "cat /sys/class/drm/card$GPUID/device/pp_od_clk_voltage" | sed '/OD_MCLK/Q' | grep "$currentCoreState:" | awk '{ print $3 }' | sed 's/[^0-9]*//g' | cut -d ' ' -f 1 | xargs | cut -d ' ' -f 1)
+      #fi
+
+      if [ -z "$currentVDDC" ]; then
+        currentVDDC=$(sudo su -c "cat /sys/class/drm/card$GPUID/device/pp_od_clk_voltage" | sed '/OD_VDDC_CURVE/,$!d' | grep "$currentMemState:" | awk '{ print $3 }' | sed 's/[^0-9]*//g' | cut -d ' ' -f 1 | xargs | cut -d ' ' -f 1)
+      fi
+
+      currentMVDD=$(sudo timeout 10 /home/minerstat/minerstat-os/bin/ohgodatool --show-mem -i $GPUID | grep -A 5 "$currentMemState:" | grep "MVDD" | sed 's/[^0-9]*//g' | cut -d ' ' -f 1 | xargs | cut -d ' ' -f 1)
+
+      if [ -z "$currentMVDD" ]; then
+        currentMVDD=$(sudo timeout 10 /home/minerstat/minerstat-os/bin/vegavolt --show-mem -i $GPUID | grep -A 5 "$currentMemState:" | grep "MVDD" | sed 's/[^0-9]*//g' | cut -d ' ' -f 1 | xargs | cut -d ' ' -f 1)
+      fi
+
+      if [ -z "$currentMVDD" ]; then
+        currentMVDD=$(sudo su -c "cat /sys/class/drm/card$GPUID/device/pp_od_clk_voltage" | sed '/OD_MCLK/,$!d' | grep "$currentMemState:" | awk '{ print $3 }' | sed 's/[^0-9]*//g' | cut -d ' ' -f 1 | xargs | cut -d ' ' -f 1)
+      fi
+
+      if [ -z "$currentVDDC" ]; then
+        currentVDDC=0
+      fi
+      if [ -z "$currentMVDD" ]; then
+        currentMVDD=0
+      fi
+      #echo "VDDC: $currentVDDC, MVDD: $currentMVDD"
+      #echo
+      #echo $STRING
+
+      # Send GPU (VRAM) Memory info in Mb
+      VRAM=$(timeout 3 sudo stat -c %s -- /sys/kernel/debug/dri/$GPUID/amdgpu_vram)
+
+      # Protection for reading
+      if [ -z "$VRAM" ]; then
+        VRAM=0
+      fi
+
+      VRAM_MB=$(($VRAM / 1024 / 1024))
+
+      # Sending Memory Temperature
+      MEMTEMP=0
+      CHECK_LABEL=$(timeout 5 sudo su -c "cat /sys/class/drm/card$GPUID/device/hwmon/hwmon*/temp3_label")
+      if [ "$CHECK_LABEL" = "mem" ]; then
+        MEMTEMP=$(timeout 5 sudo su -c "cat /sys/class/drm/card$GPUID/device/hwmon/hwmon*/temp3_input")
+        MEMTEMP=$((MEMTEMP / 1000))
+      fi
+
+      if [ -z "$MEMTEMP" ]; then
+        MEMTEMP=0
+      fi
+
+      # Current POWERCAP
+      POWERCAP=0
+      POWERF=$(sudo cat /sys/class/drm/card$GPUID/device/hwmon/hwmon*/power1_cap)
+      if [[ ! -z "$POWERF" ]]; then
+        POWERF=$((POWERF / 1000000))
+        POWERCAP=$POWERF
+      fi
+
+      NEWSTRING="$STRING, $currentVDDC, $currentMVDD, $VRAM_MB, $MEMTEMP, $POWERCAP"
+      #echo $NEWSTRING
+      I=$((i + 1))
+      TEST=$(echo $AMDINFO_ORIGINAL | $JQ_PATH -r .[\"$I\"])
+      if [[ $TEST == "null" ]]; then
+        COMMA=""
+      else
+        COMMA=","
+      fi
+      AMD_NEW=$AMD_NEW'"'$NEWSTRING'"'$COMMA''
+    fi
+  done
+  AMD_NEW=$AMD_NEW'}'
+
+  if [ -z "$AMD_NEW" ]; then
+    AMD_NEW="$AMDINFO_ORIGINAL"
+  fi
+
+  echo $AMD_NEW
+
+fi
+
+# ==================================
+# = AMD with Voltages, BUS ID METHOD
+# ==================================
+
+if [[ $1 == "amd3" ]]; then
+
+  AMDINFO_ORIGINAL=$(sudo /home/minerstat/minerstat-os/bin/amdinfo)
+  JQ_PATH="/home/minerstat/minerstat-os/bin/jq"
+  AMD_NEW='{'
+
+  TEST=$(cat /dev/shm/amdmeminfo.txt)
+  if [ -z "$TEST" ]; then
+    timeout 5 sudo rm /home/minerstat/minerstat-os/bin/amdmeminfo.txt
+    timeout 5 sudo rm /dev/shm/amdmeminfo.txt
+    sudo chmod 777 /dev/shm/amdmeminfo.txt
+    timeout 30 sudo /home/minerstat/minerstat-os/bin/amdmeminfo -s -q > /dev/shm/amdmeminfo.txt &
+    sudo cp -rf /dev/shm/amdmeminfo.txt /home/minerstat/minerstat-os/bin
+    sudo chmod 777 /home/minerstat/minerstat-os/bin/amdmeminfo.txt
+  fi
+
+  RBC=$(cat /dev/shm/amdmeminfo.txt)
+  # If read back also empty fallback to old method
+  if [ -z "$RBC" ]; then
+    sudo timeout 15 /home/minerstat/minerstat-os/bin/gpuinfo amd2
+    exit 1
+  fi
+
+  # fix issue with meminfo file
+  if [[ $RBC == *"libamdocl"* ]]; then
+    sed -i '/libamdocl/d' /dev/shm/amdmeminfo.txt
+  fi
+
+  NID=1
+  SAMPLE='"0"'
+  if [[ $AMDINFO_ORIGINAL == *"$SAMPLE"* ]]; then
+    NID=0
+  fi
+
+  if [[ $2 == "debug" ]]; then
+    echo "NID: $NID"
+  fi
+
+  input="/dev/shm/amdmeminfo.txt"
+  while IFS= read -r line
+  do
+    # Parse BUS ID
+    READ="$line"
+    IFS=':' read -r -a array <<< "$READ"
+    BUS="${array[1]}"
+    # Process BUS ID
+    GPUBUSINT=$(echo $BUS | cut -f 1 -d '.')
+    GPUBUS=$(python -c 'print(int("'$GPUBUSINT'", 16))')
+    GID=$GPUBUS
+    recheckID=$(ls /sys/bus/pci/devices/*$GPUBUSINT":00.0"/drm | grep "card" | sed 's/[^0-9]*//g')
+    GPUID=$recheckID
+    i=$GPUID
+    if [[ $2 == "debug" ]]; then
+      echo "Fetching BUS [$BUS -> $GPUBUS], Parsed to ID: $GPUID"
+    fi
+    # Call script
+    STRING=$(echo $AMDINFO_ORIGINAL | $JQ_PATH -r .[\"$NID\"])
+
+    if [[ $2 == "debug" ]]; then
+      echo "STRING: $STRING $NID"
+    fi
+
+    # Fallback
+    if [ "$STRING" = "null" ]; then
+      i=$((GPUID-1))
+      STRING=$(echo $AMDINFO_ORIGINAL | $JQ_PATH -r .[\"$i\"])
+      if [[ $STRING == *"$BUS"* ]]; then
+        TEST="ok"
+      else
+        STRING="null"
+      fi
+      if [[ $2 == "debug" ]]; then
+        echo "FALLBACK STRING2: $STRING"
+      fi
+    fi
+
+    # Fallback 2
+    if [ "$STRING" = "null" ]; then
+      i=$((GPUID+1))
+      STRING=$(echo $AMDINFO_ORIGINAL | $JQ_PATH -r .[\"$i\"])
+      if [[ $2 == "debug" ]]; then
+        echo "FALLBACK2 STRING3: $STRING"
+      fi
+    fi
+
+    if [ "$STRING" != "null" ]; then
+      AMD_NEW=$AMD_NEW'"'$i'":'
+      currentCoreState=$(sudo su -c "cat /sys/class/drm/card$GPUID/device/pp_dpm_sclk 2>/dev/null | grep '*' | cut -f1 -d':' | sed -r 's/.*([0-9]+).*/\1/' | sed 's/[^0-9]*//g'")
+      currentMemState=$(sudo su -c "cat /sys/class/drm/card$GPUID/device/pp_dpm_mclk 2>/dev/null | grep '*' | cut -f1 -d':' | sed -r 's/.*([0-9]+).*/\1/' | sed 's/[^0-9]*//g'")
+      if [ "$currentCoreState" = "0" ]; then
+        currentCoreState="3"
+      fi
+      if [ "$currentMemState" = "0" ]; then
+        currentMemState="1"
+      fi
+      if [ -z "$currentCoreState" ]; then
+        currentCoreState="1"
+      fi
+      if [ -z "$currentMemState" ]; then
+        currentMemState="2"
+      fi
+      #echo "Core State: $currentCoreState, Mem State: $currentMemState, "
+
+      #currentVDDC=$(sudo su -c "cat /sys/class/drm/card$GPUID/device/hwmon/hwmon*/in0_input" 2>/dev/null)
+
+      #if [ -z "$currentVDDC" ]; then
+      currentVDDC=$(sudo su -c "cat /sys/class/drm/card$GPUID/device/pp_od_clk_voltage" 2>/dev/null | sed '/OD_MCLK/Q' | grep "$currentCoreState:" | awk '{ print $3 }' | sed 's/[^0-9]*//g' | cut -d ' ' -f 1 | xargs 2>/dev/null | cut -d ' ' -f 1)
+      #fi
+
+      if [ -z "$currentVDDC" ]; then
+        currentVDDC=$(sudo su -c "cat /sys/class/drm/card$GPUID/device/pp_od_clk_voltage" 2>/dev/null | sed '/OD_VDDC_CURVE/,$!d' | grep "$currentCoreState:" | awk '{ print $3 }' | sed 's/[^0-9]*//g' | cut -d ' ' -f 1 | xargs 2>/dev/null | cut -d ' ' -f 1)
+      fi
+
+      if [ -z "$currentVDDC" ]; then
+        currentVDDC=$(sudo su -c "cat /sys/class/drm/card$GPUID/device/pp_od_clk_voltage" 2>/dev/null | sed '/OD_VDDC_CURVE/,$!d' | grep "$currentCoreState:" | awk '{ print $4 }' | sed 's/[^0-9]*//g' | cut -d ' ' -f 1 | xargs 2>/dev/null | cut -d ' ' -f 1)
+      fi
+
+      currentMVDD=$(sudo timeout 10 /home/minerstat/minerstat-os/bin/vegavolt --show-mem -i $GPUID | grep -A 5 "$currentMemState:" | grep "MVDD" | sed 's/[^0-9]*//g' | cut -d ' ' -f 1 | xargs 2>/dev/null | cut -d ' ' -f 1)
+
+      #if [ -z "$currentMVDD" ]; then
+      #  currentMVDD=$(sudo timeout 10 /home/minerstat/minerstat-os/bin/vegavolt --show-mem -i $GPUID | grep -A 5 "$currentMemState:" | grep "MVDD" | sed 's/[^0-9]*//g' | cut -d ' ' -f 1 | xargs 2>/dev/null | cut -d ' ' -f 1)
+      #fi
+
+      if [ -z "$currentMVDD" ]; then
+        currentMVDD=$(sudo su -c "cat /sys/class/drm/card$GPUID/device/pp_od_clk_voltage" 2>/dev/null | sed '/OD_MCLK/,$!d' | grep "$currentMemState:" | awk '{ print $3 }' | sed 's/[^0-9]*//g' | cut -d ' ' -f 1 | xargs 2>/dev/null | cut -d ' ' -f 1)
+      fi
+
+      if [ -z "$currentVDDC" ]; then
+        currentVDDC=0
+      fi
+      if [ -z "$currentMVDD" ]; then
+        currentMVDD=0
+      fi
+      #echo "VDDC: $currentVDDC, MVDD: $currentMVDD"
+      #echo
+      #echo $STRING
+
+      # Send GPU (VRAM) Memory info in Mb
+      VRAM=$(timeout 3 sudo stat -c %s -- /sys/kernel/debug/dri/$GPUID/amdgpu_vram 2>/dev/null)
+
+      # Protection for reading
+      if [ -z "$VRAM" ]; then
+        VRAM=0
+      fi
+
+      VRAM_MB=$(($VRAM / 1024 / 1024))
+
+      # Sending Memory Temperature
+      MEMTEMP=0
+      CHECK_LABEL=$(timeout 5 sudo su -c "cat /sys/class/drm/card$GPUID/device/hwmon/hwmon*/temp3_label" 2>/dev/null)
+      if [ "$CHECK_LABEL" = "mem" ]; then
+        MEMTEMP=$(timeout 5 sudo su -c "cat /sys/class/drm/card$GPUID/device/hwmon/hwmon*/temp3_input" 2>/dev/null)
+        MEMTEMP=$((MEMTEMP / 1000))
+      fi
+
+      if [ -z "$MEMTEMP" ]; then
+        MEMTEMP=0
+      fi
+
+      # Current POWERCAP
+      POWERCAP=0
+      POWERF=$(sudo cat /sys/class/drm/card$GPUID/device/hwmon/hwmon*/power1_cap)
+      if [[ ! -z "$POWERF" ]]; then
+        POWERF=$((POWERF / 1000000))
+        POWERCAP=$POWERF
+      fi
+
+      NEWSTRING="$STRING, $currentVDDC, $currentMVDD, $VRAM_MB, $MEMTEMP, $POWERCAP"
+      if [[ $2 == "debug" ]]; then
+        echo "Debug: $NEWSTRING | CORESTATE: $currentCoreState , MEMSTATE: $currentMemState, VDDC: $currentVDDC, MVDD: $currentMVDD, VRAM: $VRAM, GPUID: $GPUID, VID: $NID"
+      fi
+      #echo $NEWSTRING
+      I=$((i + 1))
+      NID=$((NID + 1))
+      TEST=$(echo $AMDINFO_ORIGINAL | $JQ_PATH -r .[\"$NID\"])
+      if [[ $TEST == "null" ]]; then
+        COMMA=""
+      else
+        COMMA=","
+      fi
+      AMD_NEW=$AMD_NEW'"'$NEWSTRING'"'$COMMA''
+    fi
+  done < "$input"
+  AMD_NEW=$AMD_NEW'}'
+
+  if [ -z "$AMD_NEW" ]; then
+    AMD_NEW="$AMDINFO_ORIGINAL"
+  fi
+
+  AMD_NEW=$(echo $AMD_NEW | sed "s/,}/}/")
+  echo $AMD_NEW
+
+fi

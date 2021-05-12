@@ -1,0 +1,113 @@
+#!/bin/bash
+# Update to 5.4.113 Mainline
+
+echo
+echo "========== Kernel Update Utility =========="
+echo "Disclaimer: Use at your own risk. If rig not booting after process, you will have to reflash."
+echo "Hint: 8GB RAM recommended for sucessfull DKMS build."
+echo
+
+CURRENT_KERNEL=$(uname -r)
+
+if [[ $CURRENT_KERNEL != *"5.4.113"* ]]; then
+
+  echo
+  echo "Updating to 5.4.113 from $CURRENT_KERNEL ..."
+  echo "If the installation asks about Abort kernel removal? Select: No"
+  echo
+
+  sleep 5
+
+  # Stop And Maintenance mode
+  echo
+  echo "================="
+  echo "Stopping miner/agent and entering into maintenance mode.."
+  echo "================="
+  echo
+  sudo /home/minerstat/minerstat-os/core/stop >/dev/null 2>&1
+  sudo /home/minerstat/minerstat-os/core/maintenance >/dev/null 2>&1
+  sudo killall X >/dev/null 2>&1
+  sudo killall Xorg >/dev/null 2>&1
+  sudo killall Xorg >/dev/null 2>&1
+
+  export DEBIAN_FRONTEND=noninteractive
+  sudo apt-get update
+  sudo apt-get --fix-broken install
+  #sudo apt-get -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef -y --allow-downgrades --allow-remove-essential --allow-change-held-packages install linux-image-5.4.0-48-generic linux-headers-5.4.0-48-generic linux-modules-extra-5.4.0-48-generic
+
+  mkdir /home/minerstat/kernel
+  cd /home/minerstat/kernel
+
+  wget https://kernel.ubuntu.com/~kernel-ppa/mainline/v5.4.113/amd64/linux-headers-5.4.113-0504113-generic_5.4.113-0504113.202104161036_amd64.deb
+  wget https://kernel.ubuntu.com/~kernel-ppa/mainline/v5.4.113/amd64/linux-headers-5.4.113-0504113_5.4.113-0504113.202104161036_all.deb
+  wget https://kernel.ubuntu.com/~kernel-ppa/mainline/v5.4.113/amd64/linux-image-unsigned-5.4.113-0504113-generic_5.4.113-0504113.202104161036_amd64.deb
+  wget https://kernel.ubuntu.com/~kernel-ppa/mainline/v5.4.113/amd64/linux-modules-5.4.113-0504113-generic_5.4.113-0504113.202104161036_amd64.deb
+  sudo dpkg -i /home/minerstat/kernel/*.deb
+
+  cd /home/minerstat
+  sudo rm -rf /home/minerstat/kernel
+  sleep 1
+
+  #echo
+  #echo "If the installation asks about: Abort kernel removal? Select: No"
+  #echo
+
+  #sleep 5
+
+  #sudo apt-get -y --allow-downgrades --allow-remove-essential --allow-change-held-packages purge $(dpkg -l | grep linux | grep 5.0.21 | awk {'print $2'} | xargs)
+  #sudo rm -rf /lib/modules/5.0.21-050021-generic
+
+  # update firmwares
+  echo
+  echo "Downloading and updating firmwares.."
+  echo
+  git clone git://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git
+  cd linux-firmware/
+  sudo cp -va * /lib/firmware/
+  #sudo update-initramfs -u
+
+  # to make sure amd will load on next boot
+  sudo apt-get install --reinstall amdgpu-dkms amdgpu-dkms-firmware
+
+  # Missing firmware
+  sudo wget -o /dev/null https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/tree/rtl_nic/rtl8125a-3.fw -P /lib/firmware/rtl_nic/
+  sudo wget -o /dev/null https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/tree/rtl_nic/rtl8168fp-3.fw -P /lib/firmware/rtl_nic/
+
+  # grub, initramfs
+  sudo update-grub2
+  sudo update-initramfs -u
+
+  # validate installation
+  TEST=$(dkms status | grep amdgpu)
+  TEST2=$(dpkg -l | grep -c 5.4.113)
+  if [[ "$TEST2" -gt 0 ]]; then
+    echo
+    echo "================="
+    echo "Kernel successfully updated. Reboot with: forcereboot"
+    echo "================="
+    echo
+  else
+    echo
+    echo "================="
+    echo "Something went wrong, during installation."
+    echo "Try to fix or run the script again. Next boot probably going to fail."
+    echo "If next boot fails, you will need to reflash the USB/SSD."
+    echo "================="
+    echo
+  fi
+
+  if [[ -z "$TEST" ]]; then
+    echo
+    echo "================="
+    echo "!! AMD Driver missing from DKMS. Kernel/Driver combination unsupported or failed."
+    echo "================="
+    echo
+  fi
+
+  sync
+
+else
+  echo
+  echo "Already Updated / No update available"
+  echo
+fi

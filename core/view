@@ -1,0 +1,44 @@
+#!/bin/bash
+
+SNUM=$(sudo su minerstat -c "screen -list | grep -c minerstat-console")
+if [ "$SNUM" -lt "1" ]; then
+  echo ""
+  echo "\e[1;38;5;69m============= MINERSTAT AGENT ============\e[39m"
+  echo "\e[1;38;5;69m==\e[39m \e[38;5;221m[IDLE]\e[39m minerstat agent is not running"
+  echo "\e[1;38;5;69m==\e[39m If rig was just (re)booted, give it some time to initialize"
+  echo "\e[1;38;5;69m==\e[39m If mining process has stopped, you can start it with \e[4mmstart\e[0m"
+  echo "\e[1;38;5;69m==========================================\e[39m"
+  echo ""
+  exit 1
+fi
+
+HOW_MANY_WINDOW=$(sudo tmux list-windows | grep "panes" | head -n 1 | cut -f1 -d")" | awk -F'(' '{print $2}' | sed 's/[^.0-9]*//g')
+
+# Disable Copy mod first on tmux
+screen -S minerstat-console -X stuff ""
+screen -S minerstat-console -X stuff ""
+screen -S minerstat-console -X stuff ""
+screen -S minerstat-console -X stuff ""
+
+if [ "$HOW_MANY_WINDOW" -gt "2" ]; then
+  ps aux | grep "wrapper" | grep "minerstat" | awk '{print $2}' | sudo xargs kill -9
+fi
+
+if [ "$HOW_MANY_WINDOW" = "2" ]; then
+  # Miner window is set
+  echo ""
+  sudo tmux kill-pane -t 0 \;
+  sudo tmux split-window 'sudo /home/minerstat/minerstat-os/core/wrapper' \;
+  #sudo tmux select-layout main-horizontal \;
+  sudo tmux swap-pane -s 1 -t 0 \;
+  # Adapt all windows to the new display width & height.
+  screen -a -A -d -x minerstat-console
+else
+  # Miner window is not set
+  echo ""
+  sudo tmux split-window 'sudo /home/minerstat/minerstat-os/core/wrapper' \;
+  #sudo tmux select-layout main-horizontal \;
+  sudo tmux swap-pane -s 1 -t 0 \;
+  # Adapt all windows to the new display width & height.
+  screen -a -A -d -x minerstat-console
+fi

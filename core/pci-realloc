@@ -1,0 +1,14 @@
+#!/bin/bash
+
+string=$(sudo cat /etc/default/grub)
+
+if [[ $string == *"pci=realloc"* ]]; then
+  echo "pci=realloc already set"
+else
+
+  sudo sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="[^"]*/& pci=realloc/' /etc/default/grub
+  sudo update-grub2
+  echo "Rebooting... Please, wait"
+  sync
+  sudo bash /home/minerstat/minerstat-os/bin/reboot.sh
+fi

@@ -1,0 +1,176 @@
+#!/bin/bash
+exec 2>/dev/null
+
+# foreground color using ANSI escape
+Red=$(tput setaf 1) # red
+Green=$(tput setaf 2) # green
+Reset=$(tput sgr0)
+
+function printTable()
+{
+  local -r delimiter="${1}"
+  local -r data="$(removeEmptyLines "${2}")"
+
+  if [[ "${delimiter}" != '' && "$(isEmptyString "${data}")" = 'false' ]]
+  then
+    local -r numberOfLines="$(wc -l <<< "${data}")"
+
+    if [[ "${numberOfLines}" -gt '0' ]]
+    then
+      local table=''
+      local i=1
+
+      for ((i = 1; i <= "${numberOfLines}"; i = i + 1))
+      do
+        local line=''
+        line="$(sed "${i}q;d" <<< "${data}")"
+
+        local numberOfColumns='0'
+        numberOfColumns="$(awk -F "${delimiter}" '{print NF}' <<< "${line}")"
+
+        # Add Line Delimiter
+
+        if [[ "${i}" -eq '1' ]]
+        then
+          table="${table}$(printf '%s#' "$(repeatString '#' "${numberOfColumns}")")"
+        fi
+
+        # Add Header Or Body
+
+        table="${table}\n"
+
+        local j=1
+
+        for ((j = 1; j <= "${numberOfColumns}"; j = j + 1))
+        do
+          table="${table}$(printf '#  | %s' "$(cut -d "${delimiter}" -f "${j}" <<< "${line}")")"
+        done
+
+        table="${table}#\n"
+
+        # Add Line Delimiter
+
+        if [[ "${i}" -eq '1' ]] || [[ "${numberOfLines}" -gt '1' && "${i}" -eq "${numberOfLines}" ]]
+        then
+          table="${table}$(printf '%s#' "$(repeatString '#' "${numberOfColumns}")")"
+        fi
+      done
+
+      if [[ "$(isEmptyString "${table}")" = 'false' ]]
+      then
+        echo -e "${table}"| column -s '#' -t # | awk '/^\+/{gsub(" ", "-", $0)}1'
+      fi
+    fi
+  fi
+}
+
+function removeEmptyLines()
+{
+  local -r content="${1}"
+
+  echo -e "${content}" | sed '/^\s*$/d'
+}
+
+function repeatString()
+{
+  local -r string="${1}"
+  local -r numberToRepeat="${2}"
+
+  if [[ "${string}" != '' && "${numberToRepeat}" =~ ^[1-9][0-9]*$ ]]
+  then
+    local -r result="$(printf "%${numberToRepeat}s")"
+    echo -e "${result// /${string}}"
+  fi
+}
+
+function isEmptyString()
+{
+  local -r string="${1}"
+
+  if [[ "$(trimString "${string}")" = '' ]]
+  then
+    echo 'true' && return 0
+  fi
+
+  echo 'false' && return 1
+}
+
+function trimString()
+{
+  local -r string="${1}"
+
+  sed 's,^[[:blank:]]*,,' <<< "${string}" | sed 's,[[:blank:]]*$,,'
+}
+
+#####################################################################
+
+sudo rm /dev/shm/gpudata.txt
+sudo rm /dev/shm/gpudata_sort.txt
+
+INF_NV=$(timeout 5 sudo bash /home/minerstat/minerstat-os/bin/gpuinfo nvidia)
+INF_AMD=$(timeout 5 sudo bash /home/minerstat/minerstat-os/bin/gpuinfo amd3)
+
+HID=0
+
+if [[ ! -z "$INF_NV" ]]; then
+  # name,temperature.gpu,fan.speed,power.draw,clocks.current.sm,clocks.current.memory,utilization.gpu,pci.bus_id,clocks.max.sm,clocks.max.memory,power.min_limit,power.max_limit,power.default_limit,memory.total
+  echo "${INF_NV}" | /home/minerstat/minerstat-os/bin/jq -r '.[]' > /dev/shm/nvcache.txt
+
+  while IFS= read -r line
+  do
+    IFS=',' read -r -a array <<< "$line"
+    NAME=${array[0]}
+    NAME=$(echo $Green$NAME$Reset | xargs)
+    TEMP=${array[1]}" C"
+    TEMP=$(echo $TEMP | xargs)
+    FAN=${array[2]}
+    FAN=$(echo $FAN| cut -f1 -d"." | xargs)
+    BUS=${array[7]}
+    BUS=$(echo $BUS | sed 's/00000000://')
+    HID=$((HID+1))
+    echo "$BUS,$NAME,$TEMP,$FAN" >> /dev/shm/gpudata.txt
+  done < "/dev/shm/nvcache.txt"
+
+fi
+
+if [[ ! -z "$INF_AMD" ]]; then
+  echo "${INF_AMD}" | /home/minerstat/minerstat-os/bin/jq -r '.[]' > /dev/shm/amdcache.txt
+  NUM=1
+  while IFS= read -r line
+  do
+    IFS=',' read -r -a array <<< "$line"
+    #NAME=${array[5]}
+    #NAME=$(echo $Red$NAME$Reset | xargs | xargs)
+    TEMP=${array[0]}" C"
+    TEMP=$(echo $TEMP | xargs)
+    FAN=${array[1]}
+    FAN=$(echo $FAN| cut -f1 -d"." | xargs)" %"
+    BUS=${array[6]}
+    BUS=$(echo $BUS | sed 's/00000000://')
+    # EXTENDED CALL
+    #EXT=$(sed -n $NUM'p' < /dev/shm/amdmeminfo.txt)
+    BUSEDIT=$(echo $BUS | cut -f1 -d".")
+    if [ ${#BUSEDIT} -ge 3 ]; then
+      #echo "longer $BUSEDIT"
+      if [[ "$BUSEDIT" =~ ^0.* ]]; then
+        #echo "editing $BUSEDIT"
+        BUSEDIT="${BUSEDIT:1}"
+        #echo "edited $BUSEDIT"
+      fi
+    fi
+    EXT=$(cat /dev/shm/amdmeminfo.txt | grep ":$BUSEDIT.0")
+    #echo $EXT
+    IFS=':' read -r -a arrays <<< "$EXT"
+    NAME=${arrays[2]}
+    NAME=$(echo $Red$NAME$Reset | xargs | xargs)
+    BUSEDIT=${arrays[1]}
+    echo "$BUSEDIT,$NAME,$TEMP,$FAN" >> /dev/shm/gpudata.txt
+    NUM=$((NUM+1))
+    HID=$((HID+1))
+  done < "/dev/shm/amdcache.txt"
+fi
+
+cat /dev/shm/gpudata.txt | sort  > /dev/shm/gpudata_sort.txt
+sed  -i "1i bus,$Reset name,temp,fan" /dev/shm/gpudata_sort.txt
+
+printTable ',' "$(cat /dev/shm/gpudata_sort.txt)"

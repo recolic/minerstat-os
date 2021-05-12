@@ -1,0 +1,13 @@
+@reboot /bin/sh /home/minerstat/minerstat-os/bin/onboot.sh
+* * * * * /bin/bash /home/minerstat/minerstat-os/core/checker
+* * * * * /bin/bash /home/minerstat/minerstat-os/core/screenr
+* * * * * sudo chvt 1
+30 * * * * sudo find /var/log -type f -delete
+0 * * * * sudo /bin/bash /home/minerstat/minerstat-os/bin/upd
+0 * * * * sudo update-pciids
+0 */2 * * * sync
+0 */8 * * * sudo killall tmate
+@reboot find '/home/minerstat/minerstat-os/clients' -name "*log.txt" -type f -delete
+@reboot /usr/sbin/netplan apply
+@reboot sudo systemctl restart systemd-logind.service
+@reboot /bin/bash /home/minerstat/minerstat-os/core/dnser

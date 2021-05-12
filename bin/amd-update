@@ -1,0 +1,305 @@
+#!/bin/bash
+
+echo
+echo "========== AMD Driver Update Utility =========="
+echo "It is only recommended to choose 1-2 versions newer or older that you are currently using."
+echo "Disclaimer: Use at your own risk. If rig not booting after process, you will have to reflash."
+echo "Hint: 8GB RAM recommended for sucessfull DKMS build."
+echo
+
+
+# Warning
+version=`cat /etc/lsb-release | grep "DISTRIB_RELEASE=" | sed 's/[^.0-9]*//g'`
+if [[ "$version" == *"1.7"* ]]; then
+  echo
+  echo "On Alpha and Beta packages driver updates/downgrades are disabled"
+  echo "because the package shipped with unique customizations that can't be installed with the amd-update tool."
+  echo
+  exit 1
+fi
+
+# Global
+SILENT="no"
+REBOOT="no"
+
+# Ubuntu version
+U_VER=$(cat /etc/lsb-release)
+S_DIR="1804"
+
+# Total Memory
+MEM_MB=$(free -m | grep "Mem:" | awk '{print $2}')
+
+# Free Space in MB
+FREE_IN_MB=$(df -hm --no-sync "."  | awk 'NR==2{print $4}')
+
+if [[ $U_VER == *"16.04"* ]]; then
+  S_DIR="1604"
+elif [[ $U_VER == *"18.04"* ]]; then
+  S_DIR="1804"
+elif [[ $U_VER == *"20.04"* ]]; then
+  S_DIR="2004"
+fi
+
+echo "Ubuntu version: $S_DIR"
+
+if [[ "$S_DIR" = "1604" ]]; then
+  echo "This OS version no longer supported. Consider upgrading to a newer msOS package."
+  exit 1
+fi
+
+# Global vars
+CURRENT_DRIVER=$(timeout 5 dpkg -l | grep opencl-amdgpu-pro-icd | head -n1 | awk '{print $3}' | xargs)
+if [ -z "$CURRENT_DRIVER" ]; then
+  CURRENT_DRIVER=$(timeout 5 dpkg -l | grep amdgpu-pro-rocr-opencl | head -n1 | awk '{print $3}' | xargs | cut -f1 -d"-")
+fi
+
+SELECTED_VERSION=""
+VLIST="https://static-ssl.minerstat.farm/drivers/amd/$S_DIR/amdlist.txt"
+VLIST_TMP="/dev/shm"
+VLIST_FILE="$VLIST_TMP/amdlist.txt"
+
+# Download driver list
+if [ ! -f "$VLIST_FILE" ]; then
+  wget $VLIST -P $VLIST_TMP
+  if [[ $? -ne 0 ]]; then
+    echo "Download version list file failed.."
+    sudo rm $VLIST_TMP
+    exit 1
+  fi
+fi
+
+# Check for watchdogs
+SNUM=$(sudo su minerstat -c "screen -list | grep -c usbdog")
+if [ "$SNUM" != "1" ]; then
+  sudo su minerstat -c "screen -ls | grep usbdog | cut -d. -f1 | awk '{print $1}' | xargs kill -9; screen -wipe; sudo killall usbdog; sleep 0.5; sudo killall usbdog; screen -A -m -d -S usbdog sudo bash /home/minerstat/minerstat-os/watchdog" >/dev/null 2>&1
+fi
+
+# Help
+help () {
+  echo
+  echo "==== Help ===="
+  echo "-h  | --help         : Printing this menu"
+  echo "-l  | --list         : Listing all available driver version to install"
+  echo "-i  | --install      : Install selected version"
+  echo "-s  | --silent       : Silent mode, no questions asked"
+  echo "-r  | --reboot       : Reboot after successful install"
+  echo
+  echo
+  echo "======= Current version: v$CURRENT_DRIVER =========="
+  echo
+  echo "Install Example: amd-update --install 20.30"
+  echo
+  echo "==================================================="
+  echo
+  exit 9
+}
+
+# List
+list () {
+  # List drivers line by line
+  echo
+  echo "==== Available Versions ====="
+  while read ver; do
+    vers=$(echo $ver | sed -e 's#^amdgpu-pro-##;' | cut -f1 -d"-")
+    add=""
+    if [[ "$vers" = "20.30" ]]; then
+      add="[Supports up to RX5000 Series]"
+    fi
+    if [[ "$vers" = "20.45" ]] || [[ "$vers" = "20.40" ]] || [[ "$vers" = "20.50" ]] || [[ "$vers" = "21.10" ]]; then
+      add="[Unstable/Experimental - DO NOT UPGRADE]"
+    fi
+    echo "$vers $add"
+  done < $VLIST_FILE
+  echo
+  echo "======= Current version: v$CURRENT_DRIVER =========="
+  echo
+  echo "Update to latest: amd-update --install $vers"
+  echo
+  echo "==================================================="
+  echo
+}
+
+# check if EMPTY
+if [[ -z "$1" ]]; then
+  list
+  exit 1
+fi
+
+# List
+install () {
+  echo
+  # RAM Check for DKMS build
+  if [[ "$MEM_MB" -lt 7701 ]]; then
+    echo
+    echo "To update AMD driver requring at least 8GB of installed RAM. (Total Memory: $MEM_MB Mb)"
+    if [[ "$SILENT" == "yes" ]]; then
+      echo "-s | --silent, No questions asked, installing anyway.."
+    else
+      read -p "Are you sure you want to attempt to install? (y/n): " CONT
+      if [ "$CONT" = "y" ]; then
+        echo "All right, if installation failes you will need to reflash";
+      else
+        exit 2
+      fi
+    fi
+  fi
+  # FREE SPACE CHECK
+  if [[ "$FREE_IN_MB" -lt 2001 ]]; then
+    echo
+    echo "To update AMD driver recommended to have at least 2GB of Free Space. (Total free space: $FREE_IN_MB Mb)"
+    if [[ "$SILENT" == "yes" ]]; then
+      echo "-s | --silent, No questions asked, installing anyway.."
+    else
+      read -p "Are you sure you want to attempt to install? (y/n): " CONT
+      if [ "$CONT" = "y" ]; then
+        echo "All right, if installation failes you will need to reflash";
+      else
+        exit 2
+      fi
+    fi
+  fi
+  FULL=$(cat $VLIST_FILE | grep $SELECTED_VERSION | xargs | xargs | cut -f1 -d" ")
+  if [[ ! -z "$FULL" ]]; then
+    echo
+    echo "================="
+    echo "Valid version provided.. [$FULL] Attempting to download and install amdgpu-pro $SELECTED_VERSION .."
+    echo "================="
+    # Stop And Maintenance mode
+    echo
+    echo "================="
+    echo "Stopping miner/agent and entering into maintenance mode.."
+    echo "================="
+    echo
+    sudo /home/minerstat/minerstat-os/core/stop >/dev/null 2>&1
+    sudo /home/minerstat/minerstat-os/core/maintenance >/dev/null 2>&1
+    sudo killall X sudo killall Xorg sudo killall Xorg >/dev/null 2>&1
+    # For vanilla uninstall
+    echo
+    echo "================="
+    echo "Removing older versions.. Will take few moments"
+    echo "================="
+    echo
+    sudo /usr/bin/amdgpu-pro-uninstall -y
+    sleep 2
+    # make sure it is removed
+    sudo /usr/bin/amdgpu-pro-uninstall -y >/dev/null 2>&1
+    # apt-get update
+    sudo apt-get update
+    sleep 1
+    # Download
+    if [ ! -f "/tmp/$FULL" ]; then
+      wget "https://static-ssl.minerstat.farm/drivers/amd/$S_DIR/$FULL" -P /tmp
+      if [[ $? -ne 0 ]]; then
+        echo "Download driver installer failed.."
+        sudo rm /tmp/$FILE
+        exit 1
+      fi
+    fi
+    # Permissions
+    sudo chmod 777 /tmp/$FULL >/dev/null 2>&1
+    # Install
+    sudo tar -xvf /tmp/$FULL -C /tmp
+    FULL_CUT=$(echo $FULL | sed s/".tar.xz"//)
+    sudo chmod -R 777 /tmp/$FULL_CUT >/dev/null 2>&1
+    if [[ $FULL_CUT == *"20.50"* ]] || [[ $FULL_CUT == *"21.10"* ]]; then
+      sudo /tmp/$FULL_CUT/amdgpu-pro-install -y --opencl=legacy,rocr --headless
+    else
+      sudo /tmp/$FULL_CUT/amdgpu-pro-install -y --opencl=legacy,pal --headless
+    fi
+    # Initramfs
+    sudo update-initramfs -u
+    # force amd opencl
+    sudo su -c "echo '/opt/amdgpu-pro/lib/x86_64-linux-gnu/libamdocl64.so' > /etc/OpenCL/vendors/amdocl64.icd"
+    # sudo clinfo
+    # Sync
+    sudo /home/minerstat/minerstat-os/core/stop >/dev/null 2>&1
+    TEST=$(dkms status | grep amdgpu)
+    if [[ "$TEST" == *"installed"* ]]; then
+      echo
+      echo "================="
+      echo "Driver successfully installed. Reboot with: forcereboot"
+      echo "================="
+      echo
+      if [[ "$REBOOT" == "yes" ]]; then
+        echo "Everything went fine, rebooting"
+        sync
+        sleep 1
+        sudo bash /home/minerstat/minerstat-os/bin/reboot.sh
+      fi
+    else
+      echo
+      echo "================="
+      echo "Something went wrong, during installation."
+      echo "Try again to run installer, or select different version to install."
+      echo "If nothing works, reflash your USB/SSD with an image from minerstat.com"
+      echo "================="
+      echo
+    fi
+    sync
+  else
+    echo
+    echo "================="
+    echo "Invalid driver version number provided. Check available versions with:"
+    echo "amd-update --list"
+    echo "================="
+    echo
+    exit 2
+  fi
+  echo
+}
+
+# Arg parser
+PARAMS=""
+INSTALL="no"
+while (( "$#" )); do
+  case "$1" in
+    -i|--install)
+      if [ -n "$2" ] && [ ${2:0:1} != "-" ]; then
+        SELECTED_VERSION=$2
+        INSTALL="yes"
+        shift 2
+      else
+        echo
+        echo "================="
+        echo "Error: Please, select a version to install" >&2
+        echo "================="
+        echo
+        exit 1
+      fi
+      ;;
+    -h|--help)
+      help
+      shift
+      ;;
+    -s|--silent)
+      echo -e "  [i] Silent mode \r"
+      SILENT="yes"
+      shift
+      ;;
+    -r|--reboot)
+      echo -e "  [i] Reboot after valid install \r"
+      REBOOT="yes"
+      shift
+      ;;
+    -l|--list)
+      list
+      shift
+      ;;
+    -*|--*=) # unsupported flags
+      echo "================="
+      echo "Error: Unsupported flag $1" >&2
+      echo "================="
+      exit 1
+      ;;
+    *) # preserve positional arguments
+      PARAMS="$PARAMS $1"
+      shift
+      ;;
+  esac
+done
+if [[ "$INSTALL" = "yes" ]]; then
+  install
+fi
+# set positional arguments in their proper place
+eval set -- "$PARAMS"
+echo

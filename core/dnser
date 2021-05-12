@@ -1,0 +1,7 @@
+#!/bin/bash
+
+sudo systemctl disable systemd-resolved &
+sudo systemctl stop systemd-resolved &
+
+# check cloudflare ips main
+sudo bash /home/minerstat/minerstat-os/bin/hostfix.sh

@@ -1,0 +1,34 @@
+#!/bin/bash
+
+if [ -z "$1" ] && [ -z "$2" ]; then
+  echo "Usage: mwifi ssid passwd"
+  exit 1
+fi
+
+if [ -z "$1" ]; then
+  echo "SSID (Wireless Network Name) can't be empty"
+  exit 1
+fi
+
+if [ -z "$2" ]; then
+  echo "PASSWD (Wireless Network Password) can't be empty"
+  exit 1
+fi
+
+echo "SSID: $1"
+echo "PASSWD: $2"
+
+sudo systemctl enable NetworkManager >/dev/null
+sudo systemctl start NetworkManager >/dev/null
+
+echo
+nmcli d wifi rescan
+nmcli d wifi list
+nmcli device wifi connect "$1" password "$2"
+echo
+
+sudo sed -i '/WIFISSID/d' /media/storage/network.txt
+sudo sed -i '/WIFIPASS/d' /media/storage/network.txt
+
+sudo echo 'WIFISSID="'$1'"' >> /media/storage/network.txt
+sudo echo 'WIFIPASS="'$2'"' >> /media/storage/network.txt

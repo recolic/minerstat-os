@@ -1,0 +1,12 @@
+#!/bin/bash
+
+cd /home/minerstat
+wget -o /dev/null https://downloadmirror.intel.com/15817/eng/e1000e-3.8.4.tar.gz
+tar -xvf e1000e-3.8.4.tar.gz
+cd e1000e-3.8.4/src
+sed -i 's/#if UTS_UBUNTU_RELEASE_ABI > 255/#if UTS_UBUNTU_RELEASE_ABI > 99255/' /home/minerstat/e1000e-3.8.4/src/kcompat.h
+sudo make
+sudo make install
+sudo rmmod e1000e; sudo modprobe e1000e
+sudo update-initramfs -u
+sync

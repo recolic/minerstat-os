@@ -1,0 +1,50 @@
+#!/bin/bash
+
+STATUS=$(sudo cat /media/storage/settings.txt | grep "OHGODADELAY=" | sed 's/[^=]*\(=.*\)/\1/' | tr --delete = | xargs)
+ETHPILLARGS=$(sudo cat /media/storage/settings.txt | grep "OHGODARGS=" | sed 's/[^=]*\(=.*\)/\1/' | tr --delete = | xargs)
+
+# kill
+sudo chmod 777 /home/minerstat/minerstat-os/bin/OhGodAnETHlargementPill-r2
+PID=$(timeout 5 sudo ls /var/run/screen/S-root | grep ethboost | sed 's/[^0-9]*//g' | head -n1 | xargs)
+sudo screen -XS $PID quit > /dev/null 2>&1
+PID=$(timeout 5 sudo ls /var/run/screen/S-root | grep ethboost | sed 's/[^0-9]*//g' | head -n1 | xargs)
+sudo screen -XS $PID quit > /dev/null 2>&1
+sudo killall OhGodAnETHlargementPill-r2
+
+if [ -z "$STATUS" ]; then
+  STATUS_ORIGIN="ON"
+  STATUS_NEW="OFF"
+  sudo echo "TURNING OFF OHGODAPILL..."
+  sudo sed -i '/OHGODADELAY/d' /media/storage/settings.txt
+  sudo echo "" >> /media/storage/settings.txt
+  sudo echo "OHGODADELAY=999" >> /media/storage/settings.txt
+fi
+
+#if [ "$STATUS" = "999" ]; then
+if [[ "$STATUS" == *"999"* ]]; then
+  STATUS_ORIGIN="OFF"
+  STATUS_NEW="ON"
+  sudo sed -i '/OHGODADELAY/d' /media/storage/settings.txt
+  sudo echo "" >> /media/storage/settings.txt
+  sudo echo "OHGODADELAY=10" >> /media/storage/settings.txt
+  screen -A -m -d -S ethboost sudo sh /home/minerstat/minerstat-os/bin/ethpill.sh "$ETHPILLARGS"
+fi
+
+#if [ "$STATUS" = "10" ]; then
+if [[ "$STATUS" == *"10"* ]]; then
+  STATUS_ORIGIN="ON"
+  STATUS_NEW="OFF"
+  sudo sed -i '/OHGODADELAY/d' /media/storage/settings.txt
+  sudo echo "" >> /media/storage/settings.txt
+  sudo echo "OHGODADELAY=999" >> /media/storage/settings.txt
+fi
+
+# ECHO
+echo
+echo
+echo "Previous PILL Status: $STATUS_ORIGIN"
+echo "Current  PILL Status: $STATUS_NEW"
+echo
+sudo screen -list | grep ethboost
+echo
+echo

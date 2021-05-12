@@ -1,0 +1,90 @@
+#!/bin/bash
+
+version=`cat /etc/lsb-release | grep "DISTRIB_RELEASE=" | sed 's/[^.0-9]*//g'`
+
+if [ "$version" = "1.5" ] || [ "$version" = "1.6" ] || [ "$version" = "1.7.0" ] || [ "$version" = "1.4.6" ] || [ "$version" = "1.5.1" ] || [ "$version" = "1.5.2" ] || [ "$version" = "1.5.3" ] || [ "$version" = "1.4.7" ] || [ "$version" = "1.4.8" ] || [ "$version" = "1.5.4" ] || [ "$version" = "1.5.5" ] || [ "$version" = "1.6.0" ]; then
+  if [ -z "$1" ]; then
+    echo "Usage: opencl version"
+    echo "e.g: opencl auto"
+    echo "e.g: opencl rocm"
+    echo "e.g: opencl amd"
+    exit 1
+  fi
+
+  if [ -z "$1" ]; then
+    echo "Error: OpenCL version can't be empty"
+    exit 1
+  fi
+
+  # Update rocm
+  if [[ "$1" = "rocm" ]]; then
+    sudo apt-get update
+    sudo apt-get install rocm-opencl -y
+  fi
+
+
+  FOLDER='rocm-3.1.0'
+  if [ -d "/opt/rocm-3.3.0" ]; then
+    FOLDER='rocm-3.3.0'
+  fi
+  if [ -d "/opt/rocm-3.5.0" ]; then
+    FOLDER='rocm-3.5.0'
+  fi
+  if [ -d "/opt/rocm-3.7.0" ]; then
+    FOLDER='rocm-3.7.0'
+  fi
+  if [ -d "/opt/rocm-3.9.0" ]; then
+    FOLDER='rocm-3.9.0'
+  fi
+  if [ -d "/opt/rocm-4.0.0" ]; then
+    FOLDER='rocm-4.0.0'
+  fi
+  if [ -d "/opt/rocm-4.1.0" ]; then
+    FOLDER='rocm-4.1.0'
+  fi
+
+  FILE=/media/storage/opencl.txt
+
+  case $1 in
+
+    auto)
+      sudo rm $FILE >/dev/null
+      naviCount=$(sudo /home/minerstat/minerstat-os/bin/amdcovc | grep -E "5500|5550|5600|5650|5700|5750|5800|5850|5900|5950" | wc -l)
+      if [ "$naviCount" -gt "0" ]; then
+        sudo su -c "echo '/opt/$FOLDER/opencl/lib/x86_64/libamdocl64.so' > /etc/OpenCL/vendors/amdocl64.icd"
+        echo "OpenCL switched to: rocm"
+      else
+        sudo su -c "echo '/opt/amdgpu-pro/lib/x86_64-linux-gnu/libamdocl64.so' > /etc/OpenCL/vendors/amdocl64.icd"
+        echo "OpenCL switched to: amdgpu"
+      fi
+      ;;
+
+    amd)
+      sudo su -c "echo 'amd' > $FILE"
+      sudo su -c "echo '/opt/amdgpu-pro/lib/x86_64-linux-gnu/libamdocl64.so' > /etc/OpenCL/vendors/amdocl64.icd"
+      echo "OpenCL switched to: amdgpu"
+      echo
+      exit 4
+      ;;
+
+    rocm)
+      sudo su -c "echo 'rocm' > $FILE"
+      sudo su -c "echo '/opt/$FOLDER/opencl/lib/x86_64/libamdocl64.so' > /etc/OpenCL/vendors/amdocl64.icd"
+      echo "OpenCL switched to: rocm"
+      echo
+      exit 4
+      ;;
+
+    *)
+      echo "Wrong openCL version provided."
+      echo "Available options: auto/amd/rocm"
+      echo
+      exit 3
+      ;;
+  esac
+
+else
+  echo "Error: OpenCL switcher only available from v1.5 msOS"
+  echo
+  exit 2
+fi

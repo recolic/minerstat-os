@@ -1,0 +1,139 @@
+#!/bin/bash
+
+RESPONSE=$1
+
+TOKEN="$(cat /media/storage/config.js | grep 'global.accesskey' | sed 's/global.accesskey =//g' | sed 's/;//g' | sed 's/ //g' | sed 's/"//g' | sed 's/\\r//g' | sed 's/[^a-zA-Z0-9]*//g')"
+WORKER="$(cat /media/storage/config.js | grep 'global.worker' | sed 's/global.worker =//g' | sed 's/;//g' | sed 's/ //g' | sed 's/"//g' | sed 's/\\r//g')"
+
+echo "response check"
+
+if [ -f "/dev/shm/maintenance.pid" ]; then
+  echo "Maintenance mode, all remote commands disabled."
+  if [ $RESPONSE = "CONSOLE" ]; then
+    RESPONSE="CONSOLE"
+  else
+    RESPONSE="null"
+  fi
+fi
+
+if [ $RESPONSE = "REBOOT" ]; then
+  sudo bash /home/minerstat/minerstat-os/bin/reboot.sh
+fi
+
+if [ $RESPONSE = "FORCEREBOOT" ]; then
+  sudo bash /home/minerstat/minerstat-os/bin/reboot.sh
+fi
+
+if [ $RESPONSE = "POWERCYCLE" ]; then
+  sudo bash /home/minerstat/minerstat-os/bin/reboot.sh powercycle
+fi
+
+if [ $RESPONSE = "SHUTDOWN" ]; then
+  sudo bash /home/minerstat/minerstat-os/bin/reboot.sh shutdown
+fi
+
+if [ $RESPONSE = "SAFESHUTDOWN" ]; then
+  sudo bash /home/minerstat/minerstat-os/bin/reboot.sh safeshutdown
+fi
+
+if [ $RESPONSE = "FLASH" ]; then
+  sudo bash /home/minerstat/minerstat-os/bin/getflash.sh
+fi
+
+if [ $RESPONSE = "DIRECT" ]; then
+  sudo bash /home/minerstat/minerstat-os/bin/getdirect.sh &
+fi
+
+if [ $RESPONSE = "GETBIOS" ]; then
+  sudo bash /home/minerstat/minerstat-os/bin/getbios.sh
+fi
+
+if [[ $RESPONSE == *"WORKERNAME"* ]]; then
+  echo "-------------------------------------------"
+  BL=""
+  MA="WORKERNAME "
+  WN=$(echo $RESPONSE | sed "s/$MA/$BL/" | xargs | xargs)
+  echo "New AccessKey: $TOKEN"
+  echo "New Worker Name: $WN"
+  echo
+  echo "stop" > /tmp/stop.pid;
+  sudo node /home/minerstat/minerstat-os/stop.js
+  sudo su minerstat -c "screen -X -S minerstat-console quit";
+  sudo su -c "sudo screen -X -S minew quit"
+  sudo echo global.accesskey = '"'$TOKEN'";' > /media/storage/config.js
+  sudo echo global.worker = '"'$WN'";' >> /media/storage/config.js
+  sudo cp /media/storage/config.js /home/minerstat/minerstat-os/
+  echo "Validate Config..."
+  echo
+  sudo cat /media/storage/config.js
+  screen -A -m -d -S namechange sudo bash /home/minerstat/minerstat-os/core/namenstart
+  echo "-------------------------------------------"
+fi
+
+if [ $RESPONSE = "INSTANTOC" ]; then
+  echo "-------------------------------------------"
+  screen -A -m -d -S instantoc sudo /home/minerstat/minerstat-os/bin/overclock.sh instant &
+  echo "-------------------------------------------"
+fi
+
+if [ $RESPONSE = "SETFANS" ]; then
+  echo "-------------------------------------------"
+  screen -A -m -d -S instantoc sudo /home/minerstat/minerstat-os/bin/setfans.sh &
+  echo "-------------------------------------------"
+fi
+
+if [ $RESPONSE = "DOWNLOADWATTS" ] || [ $RESPONSE = "RESTARTWATTS" ]; then
+  echo "-------------------------------------------"
+  screen -A -m -d -S overclocks sudo /home/minerstat/minerstat-os/bin/overclock.sh &
+  if [ ! -f "/tmp/stop.pid" ]; then
+    RESPONSE="RESTART"
+  fi
+  echo "-------------------------------------------"
+fi
+
+if [ $RESPONSE = "DIAG" ]; then
+  echo "-------------------------------------------"
+  screen -A -m -d -S diag sudo /home/minerstat/minerstat-os/core/diag
+  echo "-------------------------------------------"
+fi
+
+if [ $RESPONSE = "CONSOLE" ]; then
+  sudo killall tmate
+  sudo killall tmate
+  sudo kill -9 $(pidof tmate)
+  sleep 1
+  sudo su minerstat -c "sudo /bin/sh /home/minerstat/minerstat-os/core/rmate"
+  sleep 3
+  TELEID=$(sudo /home/minerstat/minerstat-os/bin/tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}' | cut -f1 -d"@" | sed 's/.* //')
+  echo "TeleID: $TELEID"
+  wget -o /dev/null -qO- "https://api.minerstat.com:2053/v2/set_os_status.php?token=$TOKEN&worker=$WORKER&teleid=$TELEID" ; echo
+fi
+
+if [ $RESPONSE = "RESTART" ] || [ $RESPONSE = "START" ] || [ $RESPONSE = "NODERESTART" ] || [ $RESPONSE = "RESTARTNODE" ]; then
+  sudo su -c "sudo rm /tmp/stop.pid"
+  sudo su -c "sudo screen -X -S minew quit"
+  sudo su -c "sudo screen -X -S fakescreen quit"
+  sudo su -c "screen -ls minew | grep -E '\s+[0-9]+\.' | awk -F ' ' '{print $1}' | while read s; do screen -XS $s quit; done"
+  sudo su minerstat -c "screen -X -S fakescreen quit"
+  sudo su minerstat -c "screen -ls minerstat-console | grep -E '\s+[0-9]+\.' | awk -F ' ' '{print $1}' | while read s; do screen -XS $s quit; done"
+  sudo killall node
+  sudo su minerstat -c "screen -A -m -d -S fakescreen sh /home/minerstat/minerstat-os/bin/fakescreen.sh"
+  sleep 2
+  sudo su minerstat -c "screen -A -m -d -S minerstat-console sudo /home/minerstat/minerstat-os/launcher.sh"
+fi
+
+if [ $RESPONSE = "STOP" ]; then
+  echo "stop" > /tmp/stop.pid;
+  sudo su -c "echo "" > /dev/shm/miner.log"
+  sudo su -c "echo 'stop' > /tmp/stop.pid"
+  sudo su minerstat -c "screen -X -S minerstat-console quit";
+  sudo su -c "sudo screen -X -S minew quit"
+  sudo node /home/minerstat/minerstat-os/stop.js
+  sleep 2
+  sudo su -c "sudo screen -X -S minew quit"
+  sudo su minerstat -c "screen -X -S minerstat-console quit";
+fi
+
+if [ $RESPONSE = "null" ]; then
+  echo "No remote command pending..";
+fi

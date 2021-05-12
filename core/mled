@@ -1,0 +1,34 @@
+#!/bin/bash
+
+STATUS=$(cat /media/storage/settings.txt | grep "NVIDIA_LED=" | sed 's/[^=]*\(=.*\)/\1/' | tr --delete = | xargs)
+
+if [ -z "$STATUS" ]; then
+  STATUS_ORIGIN="ON"
+  STATUS_NEW="OFF"
+  echo "TURNING OFF NVIDIA LEDS..."
+  echo "" >> /media/storage/settings.txt
+  echo "# NVIDIA LED CONTROL OPTIONS: ON/OFF" >> /media/storage/settings.txt
+  echo "" >> /media/storage/settings.txt
+  echo "NVIDIA_LED=OFF" >> /media/storage/settings.txt
+  sudo nvidia-settings --assign GPULogoBrightness=0 -c :0
+fi
+
+if [ "$STATUS" = "OFF" ]; then
+  STATUS_ORIGIN="OFF"
+  STATUS_NEW="ON"
+  sudo sed -i s/"NVIDIA_LED=OFF"/"NVIDIA_LED=ON"/ /media/storage/settings.txt
+  sudo nvidia-settings --assign GPULogoBrightness=100 -c :0
+fi
+
+if [ "$STATUS" = "ON" ]; then
+  STATUS_ORIGIN="ON"
+  STATUS_NEW="OFF"
+  sudo sed -i s/"NVIDIA_LED=ON"/"NVIDIA_LED=OFF"/ /media/storage/settings.txt
+  sudo nvidia-settings --assign GPULogoBrightness=0 -c :0
+fi
+
+# ECHO
+echo
+echo "Previous LED Status: $STATUS_ORIGIN"
+echo "Current  LED Status: $STATUS_NEW"
+echo

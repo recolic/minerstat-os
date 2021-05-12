@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# Toggle
+
+if [ -f "/dev/shm/maintenance.pid" ]; then
+  echo "STATUS: ENABLED"
+  echo "Disabling maintenance mode.."
+
+  sudo rm /dev/shm/maintenance.pid
+
+  echo ""
+  echo "Disabled, you can start mining with mstart command."
+else
+  echo "STATUS: DISABLED"
+  echo "Enabling maintenance mode.."
+
+  sudo echo "null" > /dev/shm/maintenance.pid
+
+  echo "Stopping miner"
+  #echo "stop" > /tmp/stop.pid;
+  sudo su -c "echo "" > /dev/shm/miner.log"
+  sudo su -c "echo 'stop' > /tmp/stop.pid"
+  sudo su minerstat -c "screen -X -S minerstat-console quit";
+  sudo su -c "sudo screen -X -S minew quit"
+  sudo node /home/minerstat/minerstat-os/stop.js
+  sleep 2
+  sudo su -c "sudo screen -X -S minew quit"
+  sudo su minerstat -c "screen -X -S minerstat-console quit";
+
+  echo ""
+  echo "Enabled, remote commands disabled until reboot or mstart."
+fi

@@ -1,0 +1,7 @@
+#!/bin/bash
+
+CHECK=$(sudo /home/minerstat/minerstat-os/bin/tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}' | xargs | wc -c)
+
+if [ "$CHECK" -lt 5 ];then
+  sudo su minerstat -c "sudo /bin/sh /home/minerstat/minerstat-os/core/rmate"
+fi

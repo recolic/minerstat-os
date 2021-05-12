@@ -1,0 +1,21 @@
+#!/bin/bash
+
+if [ -f "/home/minerstat/snapshot.pid" ]; then
+  STATUS_ORIGIN="OFF"
+  STATUS_NEW="ON"
+  sudo rm /home/minerstat/snapshot.pid
+else
+  STATUS_ORIGIN="ON"
+  STATUS_NEW="OFF"
+  sudo echo "disable" > /home/minerstat/snapshot.pid
+fi
+
+# ECHO
+echo
+echo
+echo "Previous Snapshot Control: $STATUS_ORIGIN"
+echo "Current  Snapshot Control: $STATUS_NEW"
+echo
+echo
+
+sync &

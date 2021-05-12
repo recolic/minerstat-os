@@ -1,0 +1,10 @@
+#!/bin/bash
+
+while true
+do
+  CHECK_SCREEN=$(head -n 1 /sys/devices/virtual/tty/tty0/active)
+  if [ "$CHECK_SCREEN" != "tty1" ]; then
+    sudo su -c "chvt 1"
+  fi
+  sleep 1
+done

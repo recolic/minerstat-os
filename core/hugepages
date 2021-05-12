@@ -1,0 +1,60 @@
+#!/bin/bash
+
+CUSTOM=$1
+
+echo
+
+echo "--------------------------------------"
+echo "Toggle between 128/1168 Hugepage size."
+echo "If you want to set custom value enter: hugepages %size%"
+echo "Example: hugepages 1168"
+echo "--------------------------------------"
+
+echo
+
+HPAGE=$(cat /proc/cpuinfo | grep -c "aes")
+if [ "$HPAGE" -gt "0" ]; then
+  echo "= CPU AES SUPPORT: YES"
+else
+  echo "= CPU AES SUPPORT: NO"
+  echo "= WARNING!! YOUR CPU NOT SUGGESTED FOR CPU MINING.."
+fi
+
+ISSWAP=$(grep SwapTotal: /proc/meminfo | sed 's/[^0-9]*//g')
+if [ "$ISSWAP" -gt "0" ]; then
+  echo "= SWAP ACTIVE: YES ($ISSWAP kB)"
+  echo
+  if [ -z "$CUSTOM" ]; then
+    CURRENT=$(cat /proc/sys/vm/nr_hugepages)
+    echo "CURRENT HUGEPAGES SIZE: $CURRENT"
+
+    if [ "$CURRENT" = "128" ]; then
+      sudo su -c "echo 1168 > /proc/sys/vm/nr_hugepages"
+      sudo su -c "sysctl vm.nr_hugepages=1168"
+      sudo echo "1168" > /media/storage/hugepage.txt
+    fi
+    if [ "$CURRENT" -gt "128" ]; then
+      sudo su -c "echo 128 > /proc/sys/vm/nr_hugepages"
+      sudo su -c "sysctl vm.nr_hugepages=128"
+      sudo echo "128" > /media/storage/hugepage.txt
+    fi
+  else
+    sudo su -c "echo $1 > /proc/sys/vm/nr_hugepages"
+    sudo su -c "sysctl vm.nr_hugepages=$1"
+    sudo echo "$1" > /media/storage/hugepage.txt
+  fi
+else
+  echo "= SWAP ACTIVE: NO"
+  echo
+  echo "= TO SET HUGEPAGES TO 1168 YOU FIRST NEED TO CREATE SWAP SPACE ON YOUR DISK"
+  echo "= ENTER: mswap"
+  echo "= REMINDER: SWAP SPACE IS ONLY RECOMMENDED FOR SSD's"
+  sudo su -c "echo 128 > /proc/sys/vm/nr_hugepages"
+  sudo su -c "sysctl vm.nr_hugepages=128"
+  sudo echo "128" > /media/storage/hugepage.txt
+  exit 1
+fi
+
+echo
+CURRENT=$(cat /proc/sys/vm/nr_hugepages)
+echo "NEW HUGEPAGES SIZE: $CURRENT"

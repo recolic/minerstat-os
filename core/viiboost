@@ -1,0 +1,14 @@
+#!/bin/bash
+
+string=$(sudo cat /etc/default/grub)
+
+if [[ $string == *"amdgpu.vm_size=1024"* ]]; then
+  echo "amdgpu.vm_block_size=10 amdgpu.vm_size=1024 already set"
+else
+
+  sudo sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="[^"]*/& amdgpu.vm_block_size=10 amdgpu.vm_size=1024/' /etc/default/grub
+  sudo update-grub2
+  echo "Rebooting... Please, wait"
+  sync
+  sudo bash /home/minerstat/minerstat-os/bin/reboot.sh
+fi

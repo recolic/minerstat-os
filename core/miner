@@ -1,0 +1,16 @@
+#!/bin/bash
+
+SNUM=$(sudo su -c "screen -list | grep -c minew")
+if [ "$SNUM" -lt "1" ]; then
+  echo -e ""
+  echo -e "\e[1;38;5;69m============= MINERSTAT =================\e[39m"
+  echo -e "\e[1;38;5;69m==\e[39m \e[38;5;221m[IDLE]\e[39m mining software is not running"
+  echo -e "\e[1;38;5;69m==\e[39m If rig was just (re)booted, give it some time to initialize"
+  echo -e "\e[1;38;5;69m==\e[39m If mining process has stopped, you can start it with \e[4mmstart\e[0m"
+  echo -e "\e[1;38;5;69m==\e[39m To view minerstat agent. Enter: \e[4magent\e[0m"
+  echo -e "\e[1;38;5;69m==========================================\e[39m"
+  echo -e ""
+  exit 1
+else
+  sudo screen -a -A -d -x minew
+fi

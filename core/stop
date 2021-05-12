@@ -1,0 +1,18 @@
+#!/bin/bash
+
+exec 2>/dev/null
+
+cd /home/minerstat/minerstat-os/
+sudo node stop > /dev/null
+sudo su minerstat -c "screen -X -S minerstat-console quit" 2>&1 >/dev/null
+sudo su -c "echo 'stop' > /tmp/stop.pid"
+sudo su -c "sudo screen -X -S minew quit >/dev/null" 2>&1 >/dev/null
+sudo su -c "echo "" > /dev/shm/miner.log >/dev/null" 2>&1 >/dev/null
+
+echo -e ""
+echo -e "\e[1;38;5;69m============= MINERSTAT AGENT ============\e[39m"
+echo -e "\e[1;38;5;69m==\e[39m \e[38;5;221m[IDLE]\e[39m agent successfully stopped"
+echo -e "\e[1;38;5;69m==\e[39m If you want to start mining, enter: \e[4mmstart\e[0m"
+echo -e "\e[1;38;5;69m==========================================\e[39m"
+echo -e ""
+exit 1

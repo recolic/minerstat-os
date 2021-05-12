@@ -1,0 +1,149 @@
+#!/bin/bash
+
+#####################################
+#    FAN ID CACHE
+#####################################
+
+FAN_CACHE=""
+CACHEFILE="/dev/shm/nvfan_cache.txt"
+if [ ! -f "$CACHEFILE" ]; then
+  sudo rm $CACHEFILE > /dev/null 2>&1
+  FAN_CACHE=$(nvidia-settings -q gpus -q fans -c :0 > $CACHEFILE 2>&1)
+fi
+FAN_CACHE=$(cat $CACHEFILE)
+# handle xorg here
+if [[ $FAN_CACHE == *"ERROR"* ]] || [[ $FAN_CACHE == *"fatal"* ]]; then
+  #ERROR: Unable to find display on any available system
+  FAN_CACHE=$(nvidia-settings -q gpus -q fans -c :0 > $CACHEFILE 2>&1)
+  FAN_CACHE=$(cat $CACHEFILE)
+fi
+
+#####################################
+#    BUILD JSON FROM FAN NUMBERS
+#####################################
+
+JSON_FAN='{'
+
+ID1=""
+ID2=""
+sudo echo "" > /dev/shm/id1.txt
+sudo echo "" > /dev/shm/id2.txt
+
+CACHEFILE="/dev/shm/nvid_cache.txt"
+
+if [ ! -f "$CACHEFILE" ]; then
+  # Try to generate list from custom modified nvfanid script
+  DISPLAY=:0 timeout 5 sudo /home/minerstat/minerstat-os/bin/nvfanid > /dev/shm/nvid_cachegen.txt 2>&1
+  RB=$(cat /dev/shm/nvid_cachegen.txt)
+  if [[ $RB == *"fan num"* ]]; then
+    for i in {0..15}
+    do
+      JSON_FAN=$JSON_FAN'"'$i'":'
+      FANNUM=$(cat /dev/shm/nvid_cachegen.txt | grep "GPU #$i fan" | rev | cut -d"#" -f1 | rev | cut -d"," -f1 | rev | cut -d" " -f1 | rev)
+      if [[ $i == "15" ]]; then
+        COMMA=""
+      else
+        COMMA=","
+      fi
+      JSON_FAN=$JSON_FAN'"'$FANNUM'"'$COMMA''
+    done
+    JSON_FAN=$JSON_FAN'}'
+    # Cache
+    sudo echo $JSON_FAN > $CACHEFILE
+  else
+    # Failover as standard
+    for i in {0..15}
+    do
+      JSON_FAN=$JSON_FAN'"'$i'":'
+      CHECKTYPE=$(nvidia-smi -L | grep "GPU $i")
+      if [[ $CHECKTYPE == *"RTX"* ]]; then
+        FANNUM="2"
+      elif [[ $CHECKTYPE == *"GTX"* ]]; then
+        FANNUM="1"
+      elif [[ $CHECKTYPE == *"P104"* ]]; then
+        FANNUM="1"
+      elif [[ $CHECKTYPE == *"P102"* ]]; then
+        FANNUM="1"
+      elif [[ $CHECKTYPE == *"P106"* ]]; then
+        FANNUM="1"
+      else
+        FANNUM="0"
+      fi
+      if [[ $i == "15" ]]; then
+        COMMA=""
+      else
+        COMMA=","
+      fi
+      JSON_FAN=$JSON_FAN'"'$FANNUM'"'$COMMA''
+    done
+    JSON_FAN=$JSON_FAN'}'
+    # Cache
+    sudo echo $JSON_FAN > $CACHEFILE
+  fi
+else
+  JSON_FAN=$(cat $CACHEFILE)
+fi
+
+#echo "DEBUG JSON:"
+#echo $JSON_FAN
+#echo
+
+#########################################
+#     CHECK FAN POSITION FOR GPUID
+#########################################
+
+JQ_PATH="/home/minerstat/minerstat-os/bin/jq"
+
+#echo "JQ JSON: "
+#echo $JSON_FAN | $JQ_PATH -r
+#echo
+
+# Searching for this GPUID
+SNUM=$1
+
+# Sum total of fans
+SUM=0
+
+for i in {0..15}
+do
+  TFAN=$(echo $JSON_FAN | $JQ_PATH -r .[\"$i\"])
+  SUM=$((SUM + TFAN))
+
+  # Break the search if target reached
+  if [ "$SNUM" = "$i" ]; then
+    break
+  fi
+done
+
+SFAN=$(echo $JSON_FAN | $JQ_PATH -r .[\"$SNUM\"])
+
+# Search for fan:10
+
+if [ "$SFAN" = "2" ]; then
+  #echo "Searched card is RTX, it has two fan to control"
+  ID1=$((SUM - 2))
+  if [[ $FAN_CACHE == *"fan:$ID1"* ]]; then
+    sudo echo $ID1 > /dev/shm/id1.txt
+  else
+    if [[ $FAN_CACHE != *"ERROR"* ]]; then
+      ID1=""
+      sudo echo "" > /dev/shm/id1.txt
+    else
+      sudo echo $ID1 > /dev/shm/id1.txt
+    fi
+  fi
+  ID2=$((SUM - 1))
+  if [[ $FAN_CACHE == *"fan:$ID2"* ]]; then
+    sudo echo $ID2 > /dev/shm/id2.txt
+  else
+    sudo echo "" > /dev/shm/id2.txt
+    ID2=""
+  fi
+  echo "Fan1 ID: $ID1 , Fan2 ID: $ID2"
+else
+  #echo "Searched card is GTX, it has only one fan to control"
+  ID1=$((SUM - 1))
+  sudo echo $ID1 > /dev/shm/id1.txt
+  sudo echo "" > /dev/shm/id2.txt
+  echo "Fan ID: $ID1"
+fi

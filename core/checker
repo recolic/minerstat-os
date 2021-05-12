@@ -1,0 +1,181 @@
+#!/bin/bash
+
+# Check host file
+HOSTLOST=$(wc -c < /etc/hosts)
+
+if [ "$HOSTLOST" -lt "100" ]; then
+  sudo /home/minerstat/minerstat-os/bin/hostfix.sh
+fi
+
+# If uptime < 4 minutes then exit
+UPTIME=$(awk '{print $1}' /proc/uptime | cut -f1 -d"." | xargs)
+if [ "$UPTIME" -lt "240" ]; then
+  # Check PCI realloc errors on boot minutes
+  TESTR=$(dmesg | grep -E "NVRM|nvidia")
+  if [[ $TESTR == *"misconfigured"* ]] || [[ $TESTR == *"Failed to find GPU"* ]]; then
+    sudo /home/minerstat/minerstat-os/core/pci-realloc
+  fi
+  exit 1
+fi
+
+# Fixing recursive fault but reboot is needed!
+# AMD CRASH
+FAULT=$(dmesg | grep -c -E "Fixing recursive fault but reboot is needed")
+if [[ "$FAULT" -gt "0" ]]; then
+  sudo bash /home/minerstat/minerstat-os/bin/reboot.sh fault
+fi
+
+# Check More "LISTENER"
+SNUM=$(sudo su minerstat -c "screen -list | grep -c listener")
+if [ "$SNUM" -gt "1" ]; then
+  sudo killall screen
+fi
+
+SNUM=$(sudo su minerstat -c "screen -list | grep -c sockets")
+if [ "$SNUM" != "1" ]; then
+  sudo su minerstat -c "screen -ls | grep sockets | cut -d. -f1 | awk '{print $1}' | xargs kill -9; screen -wipe; sudo killall sockets; screen -A -m -d -S sockets sudo bash /home/minerstat/minerstat-os/core/sockets" > /dev/null
+fi
+
+# Check lost
+STARTJS=$(wc -c < /home/minerstat/minerstat-os/start.js)
+WORKSH=$(wc -c < /home/minerstat/minerstat-os/bin/work.sh)
+JOBSSH=$(wc -c < /home/minerstat/minerstat-os/bin/jobs.sh)
+if [ "$STARTJS" = "0" ] || [ "$WORKSH" = "0" ] || [ "$JOBSSH" = "0" ]; then
+  sudo su -c "sudo screen -X -S minew quit"
+  sudo su -c "sudo screen -X -S fakescreen quit"
+  sudo su -c "screen -ls minew | grep -E '\s+[0-9]+\.' | awk -F ' ' '{print $1}' | while read s; do screen -XS $s quit; done"
+  sudo su minerstat -c "screen -X -S fakescreen quit"
+  screen -ls minerstat-console | grep -E '\s+[0-9]+\.' | awk -F ' ' '{print $1}' | while read s; do screen -XS $s quit; done
+  sudo su minerstat -c "screen -ls minerstat-console | grep -E '\s+[0-9]+\.' | awk -F ' ' '{print $1}' | while read s; do screen -XS $s quit; done"
+  sudo killall node
+  sleep 0.25
+  cd /home/minerstat
+  sudo rm /home/minerstat/recovery.sh
+  wget -o /dev/null https://labs.minerstat.farm/repo/minerstat-os/-/raw/master/core/recovery.sh
+  sudo chmod 777 /home/minerstat/recovery.sh
+  sudo bash /home/minerstat/recovery.sh
+  sudo sh /home/minerstat/minerstat-os/bin/overclock.sh &
+  sleep 15
+  sudo su minerstat -c "screen -A -m -d -S fakescreen sh /home/minerstat/minerstat-os/bin/fakescreen.sh"
+  sleep 2
+  sudo su minerstat -c "screen -A -m -d -S minerstat-console sudo /home/minerstat/minerstat-os/launcher.sh"
+fi
+
+# Check XSERVER
+#NVIDIADEVICE=$(timeout 5 sudo lspci -k | grep VGA | grep -vE "Kaveri|Beavercreek|Sumo|Wrestler|Kabini|Mullins|Temash|Trinity|Richland|Stoney|Carrizo|Raven|Renoir|Picasso|Van" | grep -c "NVIDIA")
+#if [ "$NVIDIADEVICE" = "0" ]; then
+NVIDIADEVICE=$(timeout 40 sudo lshw -C display | grep "driver=nvidia" | wc -l)
+#fi
+if [ "$NVIDIADEVICE" = "0" ]; then
+  NVIDIADEVICE=$(timeout 3 sudo lshw -C display | grep NVIDIA | wc -l)
+fi
+if [ "$NVIDIADEVICE" != "0" ]; then
+  #if echo "$NVIDIA" | grep -iq "^GPU 0:" ;then
+  DONVIDIA="YES"
+  # Check XSERVER
+  XORG=$(timeout 5 nvidia-smi | grep -c Xorg)
+  SNUM=$(sudo su minerstat -c "screen -list | grep -c display2")
+  # Unknown Error
+  timeout 10 sudo rm /dev/shm/nverr.txt &> /dev/null
+  #CHECK_ERR=$(timeout 10 sudo nvidia-settings -c :0 -a GPUFanControlState=1 -a GPUTargetFanSpeed="75" &> /dev/shm/nverr.txt)
+  #CHECK_ERR=$(cat /dev/shm/nverr.txt | grep -c "Unknown Error")
+  if [[ "$SNUM" != "1" ]] || [[ "$XORG" -lt 1 ]] || [[ "$XORG" -lt $NVIDIADEVICE ]]; then
+    sudo su -c "timeout 10 sudo screen -X -S display quit" > /dev/null
+    timeout 10 screen -X -S display quit > /dev/null
+    timeout 10 screen -X -S display2 quit > /dev/null
+    sudo timeout 10 killall X > /dev/null
+    sudo timeout 10 killall Xorg > /dev/null
+    sudo timeout 5 kill -9 $(sudo pidof Xorg) > /dev/null
+    sudo timeout 5 rm /tmp/.X0-lock > /dev/null
+    echo "device num: $NVIDIADEVICE"
+    EGPU=""
+    EGPU_FETCH=$(sudo timeout 10 nvidia-xconfig -A | grep -c "egpu")
+    if [[ "$EGPU_FETCH" -gt 0 ]]; then
+      EGPU="--egpu"
+    fi
+    # Remove previous xorg config
+    sudo rm -f /etc/X11/xorg.conf
+    sudo su -c "echo '' > /etc/X11/xorg.conf"
+    sudo nvidia-xconfig --preserve-busid --preserve-driver-name
+    # Generate new xorg
+    if [[ "$NVIDIADEVICE" -gt 1 ]]; then
+      sudo timeout 30 nvidia-xconfig -a --allow-empty-initial-configuration --cool-bits=31 --use-display-device="DFP-0" --connected-monitor="DFP-0" --custom-edid="DFP-0:/home/minerstat/minerstat-os/bin/edid.bin" --use-edid --use-edid-dpi --preserve-driver-name --preserve-busid --enable-all-gpus $EGPU
+    else
+      sudo timeout 30 nvidia-xconfig -a --allow-empty-initial-configuration --cool-bits=31 --use-display-device="DFP-0" --connected-monitor="DFP-0" --custom-edid="DFP-0:/home/minerstat/minerstat-os/bin/edid.bin" --use-edid --use-edid-dpi --preserve-driver-name --preserve-busid $EGPU
+    fi
+    sudo sed -i s/"DPMS"/"NODPMS"/ /etc/X11/xorg.conf > /dev/null
+    sudo sed -i 's/UseEdid" "True"/UseEdid" "True"\n    Option         "IgnoreEDID" "False"/g' /etc/X11/xorg.conf
+    sudo su minerstat -c "screen -A -m -d -S display2 sudo X :0" > /dev/null
+  fi
+fi
+
+# Check "LISTENER"
+LCH=$(sudo su minerstat -c "screen -list | grep -c listener")
+if [ "$LCH" = "0" ]; then
+  # Restart listener, Maintenance Process, Also from now it can be updated in runtime (mupdate)
+  timeout 5 sudo su -c "screen -S listener -X quit" > /dev/null
+  timeout 5 sudo su minerstat -c "screen -S listener -X quit" > /dev/null
+  timeout 5 sudo su minerstat -c "screen -A -m -d -S listener sudo bash /home/minerstat/minerstat-os/core/init.sh"
+fi
+
+# Check manually stopped or not with "mstop"
+if [ ! -f /tmp/stop.pid ]; then
+  # Check miner agent is running or not
+  SNUM=$(sudo su minerstat -c "screen -list | grep -c minerstat-console")
+  if [ "$SNUM" -lt "1" ]; then
+    sudo su -c "sudo screen -X -S minew quit"
+    sudo su -c "sudo screen -X -S fakescreen quit"
+    sudo su -c "screen -ls minew | grep -E '\s+[0-9]+\.' | awk -F ' ' '{print $1}' | while read s; do screen -XS $s quit; done"
+    sudo su minerstat -c "screen -X -S fakescreen quit"
+    sudo su minerstat -c "screen -ls minerstat-console | grep -E '\s+[0-9]+\.' | awk -F ' ' '{print $1}' | while read s; do screen -XS $s quit; done"
+    sudo killall node
+    sudo sh /home/minerstat/minerstat-os/bin/overclock.sh &
+    sleep 15
+    sudo su minerstat -c "screen -A -m -d -S fakescreen sh /home/minerstat/minerstat-os/bin/fakescreen.sh"
+    sleep 2
+    sudo su minerstat -c "screen -A -m -d -S minerstat-console sudo /home/minerstat/minerstat-os/launcher.sh"
+  fi
+  # Check for bugged screens ?!
+  SNUM=$(sudo su minerstat -c "screen -list | grep -c minerstat-console")
+  if [ "$SNUM" -gt "1" ]; then
+    echo "Kill duplicated screens"
+    sudo su -c "sudo screen -X -S minew quit"
+    sudo su -c "sudo screen -X -S fakescreen quit"
+    sudo su -c "screen -ls minew | grep -E '\s+[0-9]+\.' | awk -F ' ' '{print $1}' | while read s; do screen -XS $s quit; done"
+    sudo su minerstat -c "screen -X -S fakescreen quit"
+    screen -ls minerstat-console | grep -E '\s+[0-9]+\.' | awk -F ' ' '{print $1}' | while read s; do screen -XS $s quit; done
+    sudo su minerstat -c "screen -ls minerstat-console | grep -E '\s+[0-9]+\.' | awk -F ' ' '{print $1}' | while read s; do screen -XS $s quit; done"
+    sudo killall node
+    sudo sh /home/minerstat/minerstat-os/bin/overclock.sh &
+    sleep 15
+    sudo su minerstat -c "screen -A -m -d -S fakescreen sh /home/minerstat/minerstat-os/bin/fakescreen.sh"
+    sleep 2
+    sudo su minerstat -c "screen -A -m -d -S minerstat-console sudo /home/minerstat/minerstat-os/launcher.sh"
+  fi
+fi
+
+RES_TEST=$(timeout 5 ping -c1 api.minerstat.com > /dev/null && echo "ok" || echo "failed")
+if [ "$RES_TEST" = "failed" ]; then
+  timeout 20 sudo bash /home/minerstat/minerstat-os/core/dnser
+fi
+
+# Validate NVIDIA for ethpill
+
+ETHPILLDELAY=$(cat /media/storage/settings.txt 2>/dev/null | grep 'OHGODADELAY=' | sed 's/[^0-9]*//g')
+PILL=$(sudo screen -list | grep -c "ethboost")
+
+if [[ "$PILL" -lt "1" ]]; then
+  if [[ "$ETHPILLDELAY" != "999" ]]; then
+    NVIDIA="$(nvidia-smi -L)"
+
+    if [ ! -z "$NVIDIA" ]; then
+      if echo "$NVIDIA" | grep -iq "^GPU 0:"; then
+        ETHPILLARGS=$(cat /media/storage/settings.txt 2>/dev/null | grep 'OHGODARGS="' | sed 's/OHGODARGS="//g' | sed 's/"//g')
+        cd /home/minerstat/minerstat-os/bin
+        sudo chmod 777 /home/minerstat/minerstat-os/bin/OhGodAnETHlargementPill-r2
+        sudo screen -A -m -d -S ethboost sudo bash ethpill.sh "$ETHPILLARGS"
+      fi
+    fi
+
+  fi
+fi

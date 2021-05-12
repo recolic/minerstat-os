@@ -1,0 +1,21 @@
+#!/bin/bash
+
+sleep 300
+
+# if just booted pid exists
+FILE=/tmp/stop.pid
+if [ -f "$FILE" ]; then
+  echo "pid found"
+  # agent not running
+  SNUM=$(sudo su minerstat -c "screen -list | grep -c minerstat-console")
+  if [ "$SNUM" -lt "1" ]; then
+    # stop file contains "stopboot"
+    READ=$(sudo cat /tmp/stop.pid | grep -c "stopboot")
+    if [ "$SNUM" = "1" ]; then
+      # remove stop file
+      sudo su -c "sudo rm /tmp/stop.pid"
+    fi
+  fi
+else
+  echo "pid not found"
+fi

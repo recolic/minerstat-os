@@ -1,0 +1,125 @@
+#!/bin/bash
+
+# Reset
+Color_Off='\033[0m'       # Text Reset
+
+# Regular Colors
+Red='\033[0;31m'          # Red
+Green='\033[0;32m'        # Green
+
+function printfo() {
+  mark="INFO"
+  if [[ "$1" = "info" ]]; then
+    mark="INFO"
+  elif [[ "$1" = "fail" ]]; then
+    mark="$Red"'FAIL'"$Color_Off"
+  elif [[ "$1" = "ok" ]]; then
+    mark="$Green OK $Color_Off"
+  fi
+  echo -n ""
+  echo -e "  [$mark] $2 \r"
+  if [[ ! -z "$3" ]]; then
+    echo -e "  [INFO] $3 resolved for $2 \r"
+  fi
+  echo -n ""
+}
+
+# Name servers
+#printfo info "Trying to ping nameservers from /etc/resolv.conf"
+echo "=== Ping check ==="
+while read ip; do
+  if [[ ${ip} != *":"* ]];then
+    # line not contains : so ipv4 not ipv6
+    if [[ ! -z "$ip" ]]; then
+      ip=$(echo $ip | sed 's/[^.0-9]*//g' | xargs)
+      RES_TEST=$(timeout 5 ping -c1 $ip > /dev/null && echo "ok" || echo "fail")
+      if [[ "$RES_TEST" = "ok" ]]; then
+        printfo ok $ip
+      else
+        printfo fail $ip
+      fi
+    fi
+  fi
+done </etc/resolv.conf
+
+# iPV4 connection test
+echo ""
+echo "=== Resolve check ==="
+#printfo info "Trying to ping a general server.."
+RES_TEST=$(timeout 5 ping -c1 l.root-servers.net > /dev/null && echo "ok" || echo "fail")
+if [[ "$RES_TEST" = "ok" ]]; then
+  printfo ok "l.root-servers.net"
+  printfo info "testing all nameserver with l.root-servers.net"
+  # Deeper test ?
+  while read ip; do
+    if [[ ${ip} != *":"* ]];then
+      # line not contains : so ipv4 not ipv6
+      if [[ ! -z "$ip" ]]; then
+        ip=$(echo $ip | sed 's/[^.0-9]*//g' | xargs)
+        RES_TEST=$(timeout 5 nslookup l.root-servers.net $ip > /dev/null && echo "ok" || echo "fail")
+        if [[ "$RES_TEST" = "ok" ]]; then
+          printfo ok $ip
+        else
+          printfo fail $ip
+        fi
+      fi
+    fi
+  done </etc/resolv.conf
+else
+  printfo fail "l.root-servers.net"
+fi
+
+echo ""
+echo "=== Hosts check ==="
+CNT=0
+while read ip; do
+  #ip=$(echo $ip | xargs)
+  if [[ ${ip} != *":"* ]];then
+    # line not contains : so ipv4 not ipv6
+    if [[ ! -z "$ip" ]]; then
+      if [[ ${ip} = *"minerstat."* ]] || [[ ${ip} = *"pool.ms"* ]] || [[ ${ip} = *"stratu.ms"* ]]; then
+        host=$(echo $ip | rev | cut -f1 -d" " | rev | xargs)
+        host=$(echo $host | xargs | xargs | xargs)
+        ip=$(echo $ip | cut -f1 -d" " | sed 's/[^.0-9]*//g' | xargs)
+        ip=$(echo $ip | xargs)
+        if [[ ! -z "$ip" ]]; then
+          CNT=$((CNT+1))
+          RES_TEST=$(timeout 5 ping -c1 $ip > /dev/null && echo "ok" || echo "fail")
+          if [[ "$RES_TEST" = "ok" ]]; then
+            printfo ok "$host" "$ip"
+          else
+            printfo fail "$host" "$ip"
+          fi
+        fi
+      fi
+    fi
+  fi
+done </etc/hosts
+
+# Failover
+if [[ "$CNT" -lt 22 ]]; then
+  printfo fail "/etc/hosts not contains all domains"
+  printfo info "Trying again from cached list"
+  vals="minerstat.com www.minerstat.com api.minerstat.com static-ssl.minerstat.farm eu.pool.ms us.pool.ms eu.sandbox.pool.ms us.sandbox.pool.ms labs.minerstat.farm ca.stratu.ms de.stratu.ms eu.pool.ms eu.sandbox.pool.ms in.stratu.ms nl.stratu.ms pool.ms sandbox.pool.ms sg.stratu.ms uk.stratu.ms us.pool.ms us.stratu.ms us1.stratu.ms"
+  for ip in $vals; do
+    #ip=$(echo $ip | xargs)
+    if [[ ${ip} != *":"* ]];then
+      # line not contains : so ipv4 not ipv6
+      if [[ ! -z "$ip" ]]; then
+        if [[ ${ip} = *"minerstat."* ]] || [[ ${ip} = *"pool.ms"* ]] || [[ ${ip} = *"stratu.ms"* ]]; then
+          if [[ ! -z "$ip" ]]; then
+            RES_TEST=$(timeout 5 ping -c1 $ip > /dev/null && echo "ok" || echo "fail")
+            if [[ "$RES_TEST" = "ok" ]]; then
+              printfo ok "$ip"
+            else
+              printfo fail "$ip"
+            fi
+          fi
+        fi
+      fi
+    fi
+  done
+fi
+
+echo
+exit 2

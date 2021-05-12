@@ -1,0 +1,36 @@
+#!/bin/bash
+
+TEST=$(sudo screen -list | grep -wc soctimer)
+
+if [ "$TEST" = "1" ]; then
+
+  UPTIME=$(awk '{print $1}' /proc/uptime | cut -f1 -d"." | xargs)
+  if [ "$UPTIME" -gt "240" ]; then
+    exit 1
+  fi
+
+  echo "Waiting 20..."
+  sleep 10
+  echo "Waiting 10..."
+  sleep 10
+
+  TEST=$(sudo screen -list | grep -wc minew)
+
+  until [ $TEST = 1 ]
+  do
+    TEST=$(sudo screen -list | grep -wc minew)
+    echo "Waiting miner to reclock.. (VEGA)"
+    sleep 1
+  done
+  # Miner up and running
+  echo "Miner started, wait 50 sec then apply clocks"
+  sleep 50
+  sudo chmod 777 /home/minerstat/clock_cache
+  sudo awk '!a[$0]++' /home/minerstat/clock_cache > /home/minerstat/clock_cache_run
+  sudo chmod 777 /home/minerstat/clock_cache_run
+  sudo bash /home/minerstat/clock_cache_run
+  sudo rm /home/minerstat/clock_cache
+  sudo rm /home/minerstat/clock_cache_run
+else
+  exit 0
+fi

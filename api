@@ -1,0 +1,45 @@
+#!/bin/bash
+
+# !!!!!!!!!!!!! PRIVATE / CUSTOM MINER EXAMPLE FILE !!!!!!!!!!!!!!!!!!
+
+# If your miner has a valid API endpoint (TCP / HTTP) you can request a public integration on minerstat.com
+# Don't hesitate to contact us for public integration at info@minerstat.com
+
+# Copy this file named "api" to your custom miner package to you be able to build statistics
+
+# A) Log File
+# You can save miner .log output for parsing
+# On Dashboard set a new Extra args
+# | tee log.txt
+# After you will be able to cat log.txt and save hashrate data
+# hashrate_total=$(tac /home/minerstat/minerstat-os/clients/MINER_NAME/log.txt | grep "Eth speed:" | head -n 1) # ...... Something similar
+
+# B) CURL, WGET, NC to fetch API then parse the data.
+# Hint: JQ JSON PARSER IS PRE-INSTALLED (/home/minerstat/minerstat-os/bin/jq)
+
+# Hashrate must be in H/s (1MH = 1000000H)
+hashrate_total="100000000"
+# Uptime in seconds
+uptime_in_sec="8452"
+# Pool URL
+pool="eu1.ethermine.org:4444"
+# Shares in STRING
+shares_accepted="500"
+shares_rejected="2"
+
+# You can add hashrate / GPU stats e.g.
+# gpu0=121
+# gpu1=123
+# ....
+# gpu16=122
+# Uncomment hashrate_gpu to acticate hashrate / gpu statistics
+# gpu0="100000000"
+# hashrate_gpu=",gpu0:$gpu0,gpu1:$gpu1,gpu2:$gpu2,gpu3:$gpu3,gpu4:$gpu4,gpu5:$gpu5,gpu6:$gpu6,gpu7:$gpu7,gpu8:$gpu8,gpu9:$gpu9,gpu10:$gpu10,gpu11:$gpu11,gpu12:$gpu12,gpu13:$gpu13,gpu14:$gpu14,gpu15:$gpu15";
+
+# You can break the code on any error
+# echo "error"
+# exit 1
+
+# If everything went fine, status is reported back to the agent
+# Do not edit the this line (Break the code with echo "error", exit 1 on error)
+echo "hashrate_total:$hashrate_total,uptime:$uptime_in_sec,pool:$pool,shares_rejected:$shares_rejected,shares_accepted:$shares_accepted$hashrate_gpu"

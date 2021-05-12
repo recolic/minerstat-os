@@ -1,0 +1,120 @@
+#!/bin/bash
+
+AMDDEVICE=$(timeout 40 sudo lspci -k | grep VGA | grep -vE "Kaveri|Beavercreek|Sumo|Wrestler|Kabini|Mullins|Temash|Trinity|Richland|Stoney|Carrizo|Raven|Renoir|Picasso|Van" | grep -c "AMD")
+if [ -z "$AMDDEVICE" ]; then
+  AMDDEVICE=$(timeout 3 sudo lshw -C display | grep AMD | wc -l)
+fi
+if [ -z "$AMDDEVICE" ]; then
+  AMDDEVICE=$(timeout 3 sudo lshw -C display | grep driver=amdgpu | wc -l)
+fi
+
+if grep -q experimental "/etc/lsb-release"; then
+  OSVERSION="experimental"
+  MEMTOOL="amdmemorytweak"
+else
+  OSVERSION="stable"
+  MEMTOOL="amdmemorytweak-stable"
+fi
+
+apply_tables() {
+  GPU_COUNT=$(sudo /home/minerstat/minerstat-os/bin/$MEMTOOL --current | grep GPU | wc -l)
+  echo "$AMDDEVICE AMD device detected. (FOR LOOP: $GPU_COUNT)"
+  for (( c=1; c<=$GPU_COUNT; c++ ))
+  do
+    GPU_BUS=$(sudo /home/minerstat/minerstat-os/bin/$MEMTOOL --current | grep GPU | sed -n $c"p" | head -n1 | sed 's/^.*pci/pci/' | xargs)
+    GPU_MEM_ID=$(sudo /home/minerstat/minerstat-os/bin/$MEMTOOL --current | grep GPU | sed -n $c"p" | head -n1 | cut -f1 -d":" | sed 's/[^0-9 ]*//g' | xargs)
+    GPU_BUS_PARSE=$(echo $GPU_BUS | sed 's/^.*0000:/0000:/' | cut -f 1 -d '.' )
+    GPU_BUS_PARSE=$(echo $GPU_BUS_PARSE | sed -r 's/[:]+/_/g' | sed -r 's/0000+/_/g' | sed -r 's/00+/_/g' | sed -r 's/_+//g')
+    GPUBUS_HEX=$(python -c 'print(int("'$GPU_BUS_PARSE'", 16))')
+    recheckID=$(ls /sys/bus/pci/devices/*$GPU_BUS_PARSE":00.0"/drm | grep "card" | sed 's/[^0-9]*//g')
+    MODEL=$(cat /dev/shm/amdmeminfo.txt | grep ":$GPU_BUS_PARSE")
+
+    echo
+    echo "$MODEL"
+    echo
+
+    if [[ $MODEL == *"Vega 64"* ]]; then
+      MODEL="VEGA64"
+    elif [[ $MODEL == *"Frontier"* ]]; then
+      MODEL="VEGA64"
+    elif [[ $MODEL == *"Vega 56"* ]]; then
+      MODEL="VEGA56"
+      #EXTRA_STRAP="--CL 17 --RAS 26 --RP 10 --RC 36 --RFC 248 --RRDS 3 --RRDL 3 --RCDRD 12 --RCDWR 5 --FAW 13 --RTP 4"
+    elif [[ $MODEL == *"VII"* ]]; then
+      MODEL="NoSupport" # to avoid pp_table crash Failed to send message 0x15, response 0x0
+    else
+      MODEL="NoSupport"
+    fi
+    echo "$c] $GPU_BUS, HEX: $GPU_BUS_PARSE, INT: $GPUBUS_HEX, LOCALID: $recheckID, MODEL: $MODEL"
+    if [ "$MODEL" != "NoSupport" ]; then
+      CURR_REF=$(sudo /home/minerstat/minerstat-os/bin/$MEMTOOL --current | grep -A 60 "GPU $GPU_MEM_ID:" | grep "REF:" | sed 's/Timing 12://g' | sed 's/[^0-9 ]*//g' | xargs)
+      if [[ $CURR_REF == *" "* ]]; then
+        CURR_REF=$(sudo /home/minerstat/minerstat-os/bin/$MEMTOOL --current | grep -A 20 "GPU $GPU_MEM_ID:" | grep "REF:" | sed 's/Timing 12://g' | sed 's/[^0-9 ]*//g' | xargs)
+      fi
+      wget --quiet http://static-ssl.minerstat.farm/miners/tables/$MODEL -O /dev/shm/$MODEL
+      if [ ! -f "/dev/shm/$MODEL" ]; then
+        rm /dev/shm/$MODEL
+        wget --quiet http://static-ssl.minerstat.farm/miners/tables/$MODEL -O /dev/shm/$MODEL
+      fi
+      if [ -f "/dev/shm/$MODEL" ]; then
+        sudo su -c "cat /dev/shm/$MODEL > /sys/class/drm/card$recheckID/device/pp_table"
+        echo "card$recheckID => new pp_table applied !"
+        rm /dev/shm/$MODEL
+      else
+        echo "Something went wrong. Please, try again in few minutes.."
+      fi
+      #if [[ $MODEL == *"VII"* ]]; then
+      #  if [ "$CURR_REF" -gt "1000" ]; then
+      #    NEWREF="7000"
+      #  fi
+      #  GPUID=$recheckID
+      #  sudo su -c "echo manual > /sys/class/drm/card$GPUID/device/power_dpm_force_performance_level"
+      #  sudo su -c "echo 4 > /sys/class/drm/card$GPUID/device/pp_power_profile_mode"
+      #fi
+      if [[ $MODEL == *"VEGA"* ]]; then
+        GPUID=$recheckID
+        if [ "$CURR_REF" -gt "1000" ]; then
+          NEWREF="17000"
+        fi
+        sudo su -c "echo 1 > /sys/class/drm/card$GPUID/device/hwmon/hwmon?/pwm1_enable"
+        sudo su -c "echo manual > /sys/class/drm/card$GPUID/device/power_dpm_force_performance_level"
+        sudo su -c "echo 4 > /sys/class/drm/card$GPUID/device/pp_power_profile_mode" # Compute Mode
+        # Check current states
+        sudo su -c "cat /sys/class/drm/card$GPUID/device/pp_od_clk_voltage"
+        echo "-÷-*-****** CORE CLOCK *****-*-*÷-"
+        sudo su -c "cat /sys/class/drm/card$GPUID/device/pp_dpm_sclk"
+        echo "-÷-*-****** MEM  CLOCKS *****-*-*÷-"
+        sudo su -c "cat /sys/class/drm/card$GPUID/device/pp_dpm_mclk"
+        sudo /home/minerstat/minerstat-os/bin/rocm-smi --setsclk 7
+        sudo /home/minerstat/minerstat-os/bin/rocm-smi --setmclk 3
+        if [ ! -z "$NEWREF" ]; then
+          sudo /home/minerstat/minerstat-os/bin/$MEMTOOL --gpu $recheckID --REF $NEWREF
+        fi
+        if [ ! -z "$EXTRA_STRAP" ]; then
+          sudo /home/minerstat/minerstat-os/bin/$MEMTOOL --gpu $recheckID $EXTRA_STRAP
+        fi
+      fi
+    fi
+    echo
+  done
+
+  # CURVE
+  sudo killall curve
+  echo 'Starting fan curve..'
+  if [ ! -f "/media/storage/fans.txt" ]; then
+    sudo su -c 'echo FANMIN=70 > /media/storage/fans.txt'
+    sudo su -c 'echo FANMAX=100 >> /media/storage/fans.txt'
+    sudo su -c 'echo TARGET_TEMP=60 >> /media/storage/fans.txt'
+  fi
+  screen -A -m -d -S curve sudo /home/minerstat/minerstat-os/core/curve
+
+}
+
+if [[ "$AMDDEVICE" = "0" ]]; then
+  echo
+  echo "No AMD Devices found to tweak.."
+  echo
+else
+  echo
+  apply_tables
+fi

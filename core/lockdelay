@@ -1,0 +1,62 @@
+#!/bin/bash
+
+TEST=$(sudo screen -list | grep -wc lockdelay)
+
+echo "Instance: $TEST"
+
+if [ "$TEST" = "1" ]; then
+
+  echo "Waiting 20..."
+  sleep 20
+
+  TEST=$(sudo screen -list | grep -wc minew)
+
+  until [ $TEST = 1 ]
+  do
+    TEST=$(sudo screen -list | grep -wc minew)
+    echo "Waiting miner to start..."
+    sleep 1
+  done
+  # Miner up and running
+  echo "Miner started, wait 40 sec, then apply clocks"
+  sleep 10
+  echo "30 sec wait left.."
+  sleep 10
+  echo "20 sec wait left.."
+  sleep 10
+  echo "10 sec wait left.."
+  sleep 10
+  echo "Working on it..."
+
+  sudo chmod 777 /dev/shm/nv_lockcache.txt
+  sudo awk '!a[$0]++' /dev/shm/nv_lockcache.txt > /dev/shm/nv_lockcache_unique.txt
+  sudo chmod 777 /dev/shm/nv_lockcache_unique.txt
+
+  cat /dev/shm/nv_lockcache_unique.txt
+  READIN=$(cat /dev/shm/nv_lockcache_unique.txt)
+
+  JOB=""
+
+  if [[ $READIN == *"ALL:"* ]]; then
+    echo "Appling same core lock to all selected"
+    GETCLOCK=$(cat /dev/shm/nv_lockcache_unique.txt | grep "ALL:" | rev | cut -d: -f1 | rev)
+    if [[ "$GETCLOCK" != "skip" ]]; then
+      echo "Fetched clock is $GETCLOCK Mhz"
+      sudo nvidia-smi -lgc $GETCLOCK
+    fi
+  else
+    echo "Appling locked core per gpu basis"
+    while read line; do
+      GETCLOCK=$(echo $line | rev | cut -d: -f1 | rev)
+      GETID=$(echo $line | cut -d: -f1)
+      if [[ "$GETCLOCK" != "skip" ]]; then
+        echo "Fetched clock is $GETCLOCK Mhz for ID $GETID"
+        sudo nvidia-smi -i $GETID -lgc $GETCLOCK
+      fi
+    done </dev/shm/nv_lockcache_unique.txt
+  fi
+
+else
+  echo "Not running in screen"
+  exit 0
+fi

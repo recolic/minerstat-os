@@ -1,0 +1,73 @@
+#!/bin/bash
+exec 2>/dev/null
+
+# Reset
+Color_Off='\033[0m'       # Text Reset
+
+# Regular Colors
+Red='\033[0;31m'          # Red
+Green='\033[0;32m'        # Green
+
+function printfo() {
+  mark="INFO"
+  if [[ "$1" = "info" ]]; then
+    mark="INFO"
+  elif [[ "$1" = "fail" ]]; then
+    mark="$Red"'FAIL'"$Color_Off"
+  elif [[ "$1" = "ok" ]]; then
+    mark="$Green OK $Color_Off"
+  fi
+  echo -n ""
+  echo -e "  [$mark] $2 \r"
+  echo -n ""
+}
+
+# Remove Audio Devices
+AUDIO_ID=$(timeout 5 sudo lspci -k | grep Audio | awk {'print $1'} | grep -vE "Subsystem:" | xargs)
+for bus in $AUDIO_ID; do
+  sudo su -c "echo 1 > /sys/bus/pci/devices/0000:$bus/remove"
+  printfo ok "Removed Audio Device $bus"
+done
+
+# Read UNIQUE
+if [[ ! -z "$1" ]]; then
+  if [[ "$1" = "reset" ]]; then
+    echo "" > /home/minerstat/rmpci.txt
+  else
+    VGA_ID=$(timeout 5 sudo lspci -k | grep VGA | awk {'print $1'} | grep -vE "Subsystem:" | xargs)
+    if [[ $VGA_ID == *"$1"* ]]; then
+      echo "$1" > /home/minerstat/rmpci.txt
+    else
+      printfo fail "Invalid PCIe ID. Provided $1 not exists"
+      printfo info "Available GPUs: $VGA_ID"
+    fi
+  fi
+fi
+
+# Cleanup / Order
+sudo chmod 777 /home/minerstat/rmpci.txt
+sudo awk '!a[$0]++' /home/minerstat/rmpci.txt > /home/minerstat/rmpci2.txt
+sudo cat /home/minerstat/rmpci2.txt > /home/minerstat/rmpci.txt
+sudo rm /home/minerstat/rmpci2.txt
+sudo chmod 777 /home/minerstat/rmpci.txt
+
+# Remove custom device upon user request
+# We can cache more things on that file to remove and remove all at once with this e.g: internal gpu and such
+# to free up PCIe lanes
+STOPPED=0
+
+# Gpu disabling not the best idea but for any other device can be good
+while read bus; do
+  VGA_ID=$(timeout 5 sudo lspci -k | awk {'print $1'} | grep -vE "Subsystem:" | xargs)
+  if [[ $VGA_ID == *"$bus"* ]]; then
+    CHECK_MINER=$(sudo su -c "screen -list | grep -c minew")
+    if [[ "$CHECK_MINER" -gt 0 ]]; then
+      printfo fail "Mining need to be stopped before removing a PCIe device"
+    else
+      sudo su -c "echo 1 > /sys/bus/pci/devices/0000:$bus/remove"
+      printfo ok "Removed PCIe Device $bus"
+    fi
+  else
+    printfo fail "PCIe bus $bus already removed"
+  fi
+done </home/minerstat/rmpci.txt

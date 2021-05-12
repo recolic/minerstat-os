@@ -1,0 +1,97 @@
+#!/bin/bash
+#
+#    10-help-text - print the help text associated with the distro
+#    Copyright (C) 2009-2010 Canonical Ltd.
+#
+#    Authors: Dustin Kirkland <kirkland@canonical.com>,
+#             Brian Murray <brian@canonical.com>
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License along
+#    with this program; if not, write to the Free Software Foundation, Inc.,
+#    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
+ip=`ifconfig | grep "inet" | grep -v "inet6" | grep -vE "127.0.0.1|169.254|172.17." | grep -Eo 'inet (addr:)?([0-9]*\.){3}[0-9]*' | head -n 1 | grep -o -E '[.0-9]+'`
+version=`cat /etc/lsb-release | grep "DISTRIB_RELEASE=" | sed 's/[^.0-9]*//g'`
+[ -d /sys/firmware/efi ] && BOOTED="UEFI" || BOOTED="LEGACY"
+
+if grep -q experimental "/etc/lsb-release"; then
+  version_type="experimental"
+else
+  version_type="stable"
+fi
+
+IFS=" " read LOAD1 LOAD5 LOAD15 <<<$(cat /proc/loadavg | awk '{ print $1,$2,$3 }')
+IFS=" " read USED FREE TOTAL <<<$(free -htm | grep "Mem" | awk {'print $3,$4,$2'})
+PROCESS=`ps -eo user=|sort|uniq -c | awk '{ print $2 " " $1 }'`
+PROCESS_ALL=`echo "$PROCESS"| awk {'print $2'} | awk '{ SUM += $1} END { print SUM }'`
+PROCESS_ROOT=`echo "$PROCESS"| grep root | awk {'print $2'}`
+PROCESS_USER=`echo "$PROCESS"| grep -v root | awk {'print $2'} | awk '{ SUM += $1} END { print SUM }'`
+PROCESSOR_NAME=`grep "model name" /proc/cpuinfo | cut -d ' ' -f3- | awk {'print $0'} | head -1`
+PROCESSOR_COUNT=`grep -ioP 'processor\t:' /proc/cpuinfo | wc -l`
+KERNEL_VER=`uname -r`
+
+W="\e[0;39m"
+G="\e[1;32m"
+
+echo -e "
+$W
+$W  $G            _                     _        _
+$W  $G           (_)                   | |_     | |_
+$W  $G   ___ ___  _  ___   ___  __  ___|  _|__ _|  _|
+$W  $G /  _ ' _ \| |/ _ \ / _ \/ _\/ __| | / _' | |
+$W  $G | | | | | | | | | |  __/ |  \__ \ || (_| | |_
+$W  $G |_| |_| |_|_|_| |_|\___|_|  |___/\__\__,_|\__|
+$W
+$W  Website.....:$W https://minerstat.com
+$W  Dashboard...:$W https://my.minerstat.com
+$W  Discord.....:$W https://minerstat.com/discord
+$W
+$W  OS Version..: $W$version
+$W  Kernel......: $W$KERNEL_VER
+$W  IP Address..: $W$ip
+$W  Uptime......: $W`uptime | grep -ohe 'up .*' | sed 's/,/\ hours/g' | awk '{ printf $2" "$3 }'`
+$W  Bootloader..: $W$BOOTED
+$W
+$W  Load........: $G$LOAD1$W (1m), $G$LOAD5$W (5m), $G$LOAD15$W (15m)
+$W  Processes...:$W $G$PROCESS_ROOT$W (root), $G$PROCESS_USER$W (user), $G$PROCESS_ALL$W (total)
+$W  Memory......: $G$USED$W used, $G$FREE$W free, $G$TOTAL$W total$W
+$W  CPU.........: $W$PROCESSOR_NAME ($G$PROCESSOR_COUNT$W vCPU)
+$W
+$W  Disk Usage..: $W`df -h / | awk '{if (NR!=1) {print}}' | xargs | awk '{ printf("%+3s used out of %+4s\n", $3, $2, $5); }' | sed -e 's/^/  /' | xargs | xargs`"
+
+usage=`df -h / | awk '/\// {print $(NF-1)}' | sed 's/%//'`
+used_width=$((($usage*50)/100))
+if [ "${usage}" -ge 90 ]; then
+  color="\e[1;31m"
+else
+  color="\e[1;32m"
+fi
+bar="[${color}"
+for ((i=0; i<$used_width; i++)); do
+  bar+="="
+done
+bar+="\e[39m\e[2m"
+for ((i=$used_width; i<50; i++)); do
+  bar+="="
+done
+bar+="\e[0m]"
+echo -e "${bar}" | sed -e 's/^/  /'
+
+#sudo bash /home/minerstat/minerstat-os/core/gputable
+
+printf "\n"
+printf "  Type $(tput -T xterm smul)mhelp$(tput -T xterm sgr0) for all available commands."
+echo ""
+echo ""
+
+sudo sh /home/minerstat/minerstat-os/bin/dumper.sh

@@ -1,0 +1,403 @@
+#!/bin/bash
+
+echo
+echo "========== Nvidia Driver Update Utility =========="
+echo "It is only recommended to choose 1-2 versions newer or older that you are currently using."
+echo "Disclaimer: Use at your own risk. If rig not booting after process, you will have to reflash."
+echo
+
+# Global vars
+CURRENT_DRIVER=$(timeout 10 nvidia-smi | grep "Driver Version" | xargs | sed 's/[^0-9. ]*//g' | xargs | cut -d ' ' -f 1 | xargs)
+# If driver version missing
+if [[ -z "$CURRENT_DRIVER" ]]; then
+  CURRENT_DRIVER=$(timeout 5 nvidia-settings --help | grep "version" | xargs | sed 's/[^0-9. ]*//g' | xargs | cut -d ' ' -f 1 | xargs)
+fi
+SELECTED_VERSION=""
+VLIST="https://static-ssl.minerstat.farm/drivers/nvidia/nvlist.txt"
+VLIST_TMP="/dev/shm"
+VLIST_FILE="$VLIST_TMP/nvlist.txt"
+
+# Download driver list
+if [ ! -f "$VLIST_FILE" ]; then
+  wget -o /dev/null $VLIST -P $VLIST_TMP
+  if [[ $? -ne 0 ]]; then
+    echo "Download version list file failed.."
+    sudo rm $VLIST_TMP
+    exit 1
+  fi
+fi
+
+# Global
+SILENT="no"
+REBOOT="no"
+
+# Free Space in MB
+FREE_IN_MB=$(df -hm --no-sync "."  | awk 'NR==2{print $4}')
+
+# Check for watchdogs
+SNUM=$(sudo su minerstat -c "screen -list | grep -c usbdog")
+if [ "$SNUM" != "1" ]; then
+  sudo su minerstat -c "screen -ls | grep usbdog | cut -d. -f1 | awk '{print $1}' | xargs kill -9; screen -wipe; sudo killall usbdog; sleep 0.5; sudo killall usbdog; screen -A -m -d -S usbdog sudo bash /home/minerstat/minerstat-os/watchdog" >/dev/null 2>&1
+fi
+
+# Help
+help () {
+  echo
+  echo "==== Help ===="
+  echo "-h  | --help         : Printing this menu"
+  echo "-l  | --list         : Listing all available driver version to install"
+  echo "-c  | --cuda         : Update cuda libraries"
+  echo "-i  | --install      : Install selected version"
+  echo "-s  | --silent       : Silent mode, no questions asked"
+  echo "-r  | --reboot       : Reboot after successful install"
+  echo
+  echo
+  echo "======= Current version: v$CURRENT_DRIVER =========="
+  echo
+  echo "Install Example: nvidia-update --install 455.23.04"
+  echo
+  echo "==================================================="
+  echo
+  exit 9
+}
+
+# List
+list () {
+  # List drivers line by line
+  echo
+  echo "==== Available Versions ====="
+  while read ver; do
+    vers=$(echo $ver | sed -e 's#^NVIDIA-Linux-x86_64-##;' | cut -f1 -d"r" | sed 's/.$//')
+    echo $vers
+  done < $VLIST_FILE
+  echo
+  echo "======= Current version: v$CURRENT_DRIVER =========="
+  echo
+  echo "Update to latest: nvidia-update --install $vers"
+  echo
+  echo "==================================================="
+  echo
+}
+
+# check if EMPTY
+if [[ -z "$1" ]]; then
+  list
+  exit 1
+fi
+
+# List
+install () {
+  # List drivers line by line
+  echo
+  EXISTS="0"
+  while read ver; do
+    VT=$(echo $ver | sed -e 's#^NVIDIA-Linux-x86_64-##;' | cut -f1 -d"r" | sed 's/.$//')
+    if [[ "$VT" = "$SELECTED_VERSION" ]]; then
+      EXISTS="1"
+    fi
+  done < $VLIST_FILE
+  # Check for validity
+  if [[ "$EXISTS" = "1" ]]; then
+    # FREE SPACE CHECK
+    if [[ "$FREE_IN_MB" -lt 1501 ]]; then
+      echo
+      echo "To update Nvidia driver recommended to have at least 1.5GB of Free Space. (Total free space: $FREE_IN_MB Mb)"
+      if [[ "$SILENT" == "yes" ]]; then
+        echo "-s | --silent, No questions asked, installing anyway.."
+      else
+        read -p "Are you sure you want to attempt to install? (y/n): " CONT
+        if [ "$CONT" = "y" ]; then
+          echo "All right, if installation failes you will need to reflash";
+        else
+          exit 2
+        fi
+      fi
+    fi
+    echo
+    echo "================="
+    echo "Valid version provided.. Attempting to download and install Nvidia $SELECTED_VERSION .."
+    echo "================="
+    # Stop And Maintenance mode
+    echo
+    echo "================="
+    echo "Stopping miner/agent and entering into maintenance mode.."
+    echo "================="
+    echo
+    echo "  - Running stop script"
+    sudo /home/minerstat/minerstat-os/core/stop >/dev/null 2>&1
+    # Unload Nvidia
+    echo "  - Unloading Nvidia driver"
+    sudo bash /home/minerstat/minerstat-os/bin/nvunload >/dev/null 2>&1
+    echo "  - Killing screens"
+    sudo init 3
+    # Remove ALL Nvidia
+    sudo killall screen >/dev/null 2>&1
+    #screen -list
+    #sudo screen -list
+    echo "  - Killing Xorg"
+    sudo killall X
+    sudo killall Xorg
+    sudo killall Xorg >/dev/null 2>&1
+    # For vanilla uninstall
+    echo
+    echo "================="
+    echo "Removing older versions.. Will take few moments"
+    echo "================="
+    echo
+    sudo apt-get -y --fix-broken install
+    sudo apt-get purge -y nvidia*
+    sudo apt-get purge -y nvidia-430*
+    sudo apt-get purge -y nvidia-440*
+    sudo apt-get purge -y nvidia-driver*
+    sudo /usr/bin/nvidia-uninstall --accept-license --no-questions --ui=none
+    # Download
+    FILE="NVIDIA-Linux-x86_64-$SELECTED_VERSION.run"
+    if [ ! -f "/tmp/$FILE" ]; then
+      echo "Downloading driver package.."
+      wget "https://static-ssl.minerstat.farm/drivers/nvidia/$FILE" -P /tmp
+      if [[ $? -ne 0 ]]; then
+        echo "Download driver installer failed.."
+        sudo rm /tmp/$FILE
+        exit 1
+      fi
+    fi
+    # Permissions
+    sudo chmod 777 /tmp/$FILE >/dev/null 2>&1
+    # Install
+    sudo /tmp/$FILE --accept-license --no-questions --ui=none --dkms --no-cc-version-check
+    # Initramfs
+    sudo update-initramfs -u
+    # Sync
+    sync
+    # make sure xorg Installed
+    sudo apt-get install -y xorg
+    # Install CUDA
+    cuda
+    # Sync
+    sync
+    # Make a safety recovery
+    echo
+    echo "================="
+    echo "Install finished, now making a recovery ..."
+    echo "================="
+    echo
+    sudo su -c "cd /home/minerstat; sudo rm /home/minerstat/recovery.sh; wget -o /dev/null https://labs.minerstat.farm/repo/minerstat-os/-/raw/master/core/recovery.sh; sudo chmod 777 /home/minerstat/recovery.sh;"
+    sudo bash /home/minerstat/recovery.sh
+    sudo /home/minerstat/minerstat-os/core/stop >/dev/null 2>&1
+    echo
+    # Check XSERVER
+    #NVIDIADEVICE=$(timeout 5 sudo lspci -k | grep VGA | grep -vE "Kaveri|Beavercreek|Sumo|Wrestler|Kabini|Mullins|Temash|Trinity|Richland|Stoney|Carrizo|Raven|Renoir|Picasso|Van" | grep -c "NVIDIA")
+    #if [ "$NVIDIADEVICE" = "0" ]; then
+    NVIDIADEVICE=$(timeout 40 sudo lshw -C display | grep "driver=nvidia" | wc -l)
+    #fi
+    if [ "$NVIDIADEVICE" = "0" ]; then
+      NVIDIADEVICE=$(timeout 3 sudo lshw -C display | grep NVIDIA | wc -l)
+    fi
+    if [ "$NVIDIADEVICE" != "0" ]; then
+      #if echo "$NVIDIA" | grep -iq "^GPU 0:" ;then
+      DONVIDIA="YES"
+      # Check XSERVER
+      XORG=$(timeout 5 nvidia-smi | grep -c Xorg)
+      SNUM=$(sudo su minerstat -c "screen -list | grep -c display2")
+      # Unknown Error
+      timeout 10 sudo rm /dev/shm/nverr.txt &> /dev/null
+      CHECK_ERR=$(timeout 10 sudo nvidia-settings -c :0 -a GPUFanControlState=1 -a GPUTargetFanSpeed="75" &> /dev/shm/nverr.txt)
+      CHECK_ERR=$(cat /dev/shm/nverr.txt | grep -c "Unknown Error")
+      if [[ "$SNUM" != "1" ]] || [[ "$XORG" -lt 1 ]] || [[ "$XORG" -lt $NVIDIADEVICE ]] || [[ "$CHECK_ERR" -gt 0 ]]; then
+        sudo su -c "timeout 10 sudo screen -X -S display quit" > /dev/null
+        timeout 10 screen -X -S display quit > /dev/null
+        timeout 10 screen -X -S display2 quit > /dev/null
+        sudo timeout 10 killall X > /dev/null
+        sudo timeout 10 killall Xorg > /dev/null
+        sudo timeout 5 kill -9 $(sudo pidof Xorg) > /dev/null
+        sudo timeout 5 rm /tmp/.X0-lock > /dev/null
+        echo "device num: $NVIDIADEVICE"
+        EGPU=""
+        EGPU_FETCH=$(sudo timeout 10 nvidia-xconfig -A | grep -c "egpu")
+        if [[ "$EGPU_FETCH" -gt 0 ]]; then
+          EGPU="--egpu"
+        fi
+        # Remove previous xorg config
+        sudo rm -f /etc/X11/xorg.conf
+        sudo su -c "echo '' > /etc/X11/xorg.conf"
+        sudo nvidia-xconfig --preserve-busid --preserve-driver-name
+        # Generate new xorg
+        if [[ "$NVIDIADEVICE" -gt 1 ]]; then
+          sudo timeout 30 nvidia-xconfig -a --allow-empty-initial-configuration --cool-bits=31 --use-display-device="DFP-0" --connected-monitor="DFP-0" --custom-edid="DFP-0:/home/minerstat/minerstat-os/bin/edid.bin" --use-edid --use-edid-dpi --preserve-busid --preserve-driver-name --enable-all-gpus $EGPU
+        else
+          sudo timeout 30 nvidia-xconfig -a --allow-empty-initial-configuration --cool-bits=31 --use-display-device="DFP-0" --connected-monitor="DFP-0" --custom-edid="DFP-0:/home/minerstat/minerstat-os/bin/edid.bin" --use-edid --use-edid-dpi --preserve-busid --preserve-driver-name $EGPU
+        fi
+        sudo sed -i s/"DPMS"/"NODPMS"/ /etc/X11/xorg.conf > /dev/null
+        sudo sed -i 's/UseEdid" "True"/UseEdid" "True"\n    Option         "IgnoreEDID" "False"/g' /etc/X11/xorg.conf
+        sudo su minerstat -c "screen -A -m -d -S display2 sudo X :0" > /dev/null
+      fi
+    fi
+    # Sync
+    sync
+    # Test NVIDIA-SMI
+    echo
+    TEST=$(sudo /usr/bin/nvidia-smi | grep "Driver")
+    if [[ "$TEST" == *"CUDA"* ]]; then
+      echo
+      echo "================="
+      echo "Driver successfully installed. You can see NVIDIA-SMI Output below."
+      echo "================="
+      echo
+      sudo /usr/bin/nvidia-smi
+      if [[ "$REBOOT" == "yes" ]]; then
+        echo "Everything went fine, rebooting"
+        sync
+        sleep 1
+        sudo bash /home/minerstat/minerstat-os/bin/reboot.sh
+      fi
+    else
+      echo
+      echo "================="
+      echo "Something went wrong, during installing. NVIDIA-SMI not reporting actual driver version."
+      echo "Try again to run installer, or select different version to install."
+      echo "If nothing works, reflash your USB/SSD with an image from minerstat.com"
+      echo "================="
+      echo
+    fi
+    echo
+  else
+    echo
+    echo "================="
+    echo "Invalid driver version number provided. Check available versions with:"
+    echo "nvidia-update --list"
+    echo "================="
+    echo
+    exit 2
+  fi
+  echo
+}
+
+# Download and install cuda .so files
+cuda () {
+  echo
+  echo "================="
+  echo "Installing cuda libraries.."
+  echo "================="
+  if [ ! -f "/tmp/cudalib.zip" ]; then
+    wget "https://static-ssl.minerstat.farm/drivers/nvidia/cudalib.zip" -P /tmp
+    if [[ $? -ne 0 ]]; then
+      echo "Download cuda library failed.."
+      sudo rm /tmp/cudalib.zip
+      exit 1
+    fi
+  fi
+  # unzip
+  sudo unzip -o /tmp/cudalib.zip -d /tmp/cudalib
+  # copy to gnu
+  sudo cp -fva /tmp/cudalib/* /lib/x86_64-linux-gnu
+  # sync
+  sync
+  # sync CUDA
+  if [[ -z "$SELECTED_VERSION" ]]; then
+    SELECTED_VERSION=$CURRENT_DRIVER
+  fi
+  SELECTED_VERSION_CUT=$(echo $SELECTED_VERSION | cut -f1 -d".")
+  echo
+  echo "Installed driver major version number: $SELECTED_VERSION_CUT"
+  if [[ "$SELECTED_VERSION_CUT" -ge 465 ]]; then
+    # Update this later to 11.2
+    CUDA="11.1"
+  elif [[ "$SELECTED_VERSION_CUT" -ge 460 ]]; then
+    CUDA="11.1"
+  elif [[ "$SELECTED_VERSION_CUT" -ge 455 ]]; then
+    CUDA="11.1"
+  elif [[ "$SELECTED_VERSION_CUT" -ge 450 ]]; then
+    CUDA="11.0"
+  elif [[ "$SELECTED_VERSION_CUT" -ge 440 ]]; then
+    CUDA="10.2"
+  elif [[ "$SELECTED_VERSION_CUT" -ge 418 ]]; then
+    CUDA="10.1"
+  elif [[ "$SELECTED_VERSION_CUT" -ge 410 ]]; then
+    CUDA="10.0"
+  elif [[ "$SELECTED_VERSION_CUT" -ge 396 ]]; then
+    CUDA="9.2"
+  elif [[ "$SELECTED_VERSION_CUT" -lt 396 ]]; then
+    CUDA="9.0"
+  elif [[ "$SELECTED_VERSION_CUT" -lt 320 ]]; then
+    CUDA="8.0"
+  fi
+  echo
+  echo "CUDA v$CUDA will be used as default solver.."
+  echo
+  # Used by some miner for default reference in /lib/x86_64-linux-gnu
+  # libcudart.so, libnvrtc.so, libnvrtc-builtins.so
+  for cudalib in libcudart.so libnvrtc.so libnvrtc-builtins.so; do
+    COPY="/lib/x86_64-linux-gnu/$cudalib.$CUDA"
+    if [ -f "$COPY" ]; then
+      TARGET="/lib/x86_64-linux-gnu/$cudalib"
+      sudo rm $TARGET
+      sudo ln -s $COPY $TARGET
+      REAL=$(realpath /lib/x86_64-linux-gnu/$cudalib)
+      echo "Success: $TARGET is now linked to $COPY"
+      echo "Verify: $REAL"
+    fi
+  done
+  # sync
+  sync
+  echo
+}
+
+# Arg parser
+PARAMS=""
+INSTALL="no"
+while (( "$#" )); do
+  case "$1" in
+    -i|--install)
+      if [ -n "$2" ] && [ ${2:0:1} != "-" ]; then
+        SELECTED_VERSION=$2
+        INSTALL="yes"
+        shift 2
+      else
+        echo
+        echo "================="
+        echo "Error: Please, select a version to install" >&2
+        echo "================="
+        echo
+        exit 1
+      fi
+      ;;
+    -h|--help)
+      help
+      shift
+      ;;
+    -l|--list)
+      list
+      shift
+      ;;
+    -c|--cuda)
+      cuda
+      shift
+      ;;
+    -s|--silent)
+      echo -e "  [i] Silent mode \r"
+      SILENT="yes"
+      shift
+      ;;
+    -r|--reboot)
+      echo -e "  [i] Reboot after valid install \r"
+      REBOOT="yes"
+      shift
+      ;;
+    -*|--*=) # unsupported flags
+      echo "================="
+      echo "Error: Unsupported flag $1" >&2
+      echo "================="
+      exit 1
+      ;;
+    *) # preserve positional arguments
+      PARAMS="$PARAMS $1"
+      shift
+      ;;
+  esac
+done
+if [[ "$INSTALL" = "yes" ]]; then
+  install
+fi
+# set positional arguments in their proper place
+eval set -- "$PARAMS"
+echo
